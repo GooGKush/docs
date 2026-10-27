@@ -11,7 +11,7 @@ Traditional point-in-time SIEM rules attempt to detect Shadow AI using static in
 By combining the two engines of the **Google SecOps Behavioral Analytics Harness**—**`secops-risk-metrics-multistage`** (30-day pre-computed `metrics.*` UEBA baselines) and **`secops-statistical-hunter`** (ad-hoc multi-stage signal processing and information-theoretic models over raw `UDM_EVENTS`)—we can classify resource consumption mathematically across **Human ($H$)**, **Deterministic Bot ($M_{\text{bot}}$)**, and **Agentic AI ($M_{\text{AI}}$)** regimes.
 
 > [!NOTE]
-> **Programmatic `agentic_ueba` Playbook Compatibility**: Every multi-stage YARA-L 2.0 query in this document is structured for direct ingestion by the `PlaybookRunner` engine in `~/projects/agentic_ueba` (`/api/v1/playbooks` and MCP `run_markdown_playbook`). All 14 queries pass `MalachiteASTValidator.validate_query()` with **0 AST errors** and **100% live Chronicle compiler verification (`200 OK`)**, implement **Option 1 Piecewise Cold-Start (`<= 4` active days) + 30-Day Baseline (`>= 5` active days) Unification** (`$unified_threat_score`), and culminate in **Option 3 UDM Loopback Cross-Query Entity Bridging & Capstone Convergence** (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH` synchronized via the `run_id` read-after-write barrier).
+> **Programmatic `agentic_ueba` Playbook Compatibility**: Every multi-stage YARA-L 2.0 query in this document is structured for direct ingestion by the `PlaybookRunner` engine in `~/projects/agentic_ueba` (`/api/v1/playbooks` and MCP `run_markdown_playbook`). All 20 queries pass `MalachiteASTValidator.validate_query()` with **0 AST errors** and **100% live Chronicle compiler verification (`200 OK`)**, implement **Option 1 Piecewise Cold-Start (`<= 4` active days) + 30-Day Baseline (`>= 5` active days) Unification** (`$unified_threat_score`), and culminate in **Option 3 UDM Loopback Cross-Query Entity Bridging & Capstone Convergence** (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH` synchronized via the `run_id` read-after-write barrier).
 
 ---
 
@@ -76,7 +76,7 @@ $$\text{Posterior Anomaly Confidence} \propto P(\text{Observed Signature} \mid M
 * **Cold-Start / Ephemeral Identity Prior (`Option 1` Piecewise Unification)**: Newly provisioned Shadow AI service accounts, ephemeral containers, or developer VMs (`num_metric_periods <= 4`) lack a mature 30-day variance estimate. Instead of dropping cold-start entities behind a rigid `>= 7` active-day gate, each `metrics.*` query implements a **Piecewise Two-Part Hurdle** (`if($active_days <= 4, $hurdle_score, $mature_30d_score)` exposed as `$unified_threat_score`), scoring cold-start entities via logarithmic volume/dispersion hurdles while scoring established identities (`>= 5` active days) against their 30-day parametric prior.
 * **Service Account Prior $\rightarrow$ Exploratory Likelihood**: When a cloud service account has a zero-baseline prior (`$dest_days = 0`) on a sensitive data repository or a novel binary (`$d_days <= 4` in `metrics.file_executions_total`), the prior acts as a **Discrete Hurdle Gate**, elevating first-time autonomous exploration even at low absolute event counts.
 * **Fleet Cross-Sectional Prior $\rightarrow$ Prevalence Dampening**: When evaluating new SDK User-Agents (`hybrid_metric_http_ua_prevalence_2stage.yl2`) or Workspace downloads (`part_of_the_whole_triad_multilevel.yl2`), the enterprise fleet distribution acts as a spatial prior—suppressing company-wide rollouts ($k_{\text{fleet}} \gg 10$) while amplifying isolated Shadow AI adoption ($k_{\text{fleet}} \le 3$).
-* **Cross-Query UDM Loopback Convergence (`Option 3` Connective Tissue)**: As `PlaybookRunner` executes Queries `1A`–`6B`, matched entities are ingested as `GENERIC_EVENT` records (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`, `metadata.product_log_id = $run_id`) and verified via a read-after-write polling barrier (`verify_udm_run_indexed()`). **Scenario 7** then uses those ingested UDM keys in Stage 1 to bridge directly into raw forensic telemetry (`Query 7A`) and compute multi-scenario Euclidean L2 convergence (`Query 7B`), collapsing the $H \cap M_{\text{AI}}$ and $M_{\text{bot}} \cap M_{\text{AI}}$ Venn overlap zones into high-confidence Agentic AI detections.
+* **Cross-Query UDM Loopback Convergence (`Option 3` Connective Tissue)**: As `PlaybookRunner` executes Queries `1A`–`9B`, matched entities are ingested as `GENERIC_EVENT` records (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`, `metadata.product_log_id = $run_id`) and verified via a read-after-write polling barrier (`verify_udm_run_indexed()`). **Scenario 10** then uses those ingested UDM keys in Stage 1 to bridge directly into raw forensic telemetry (`Query 10A`) and compute multi-scenario Euclidean L2 convergence (`Query 10B`), collapsing the $H \cap M_{\text{AI}}$ and $M_{\text{bot}} \cap M_{\text{AI}}$ Venn overlap zones into high-confidence Agentic AI detections.
 
 ---
 
@@ -90,7 +90,10 @@ $$\text{Posterior Anomaly Confidence} \propto P(\text{Observed Signature} \mid M
 | **4** | **Narrow: Cloud Control Plane** | **Autonomous Cloud Agent Recon & Epistemic Trial-and-Error** ($M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 4A**: 2-Stage Dual-Branch Cloud Repository Scope & Caller IP Outlier (4-family `metrics.resource_*_total` depth + novel breadth). | **Query 4B**: 3-Stage Poisson Fano Factor Dispersion ($F = \sigma^2/\mu \ge 4.0$) on bursty Cloud API permission denials (`AccessDenied` retries). |
 | **5** | **Narrow: Network & Web Proxy** | **Shadow LLM SDK User-Agents & Prompt-Stuffing Byte Inversion** ($H \cap M_{\text{AI}}$) | **Query 5A**: 2-Stage HTTP User-Agent Fleet Prevalence Normalization (`metrics.http_queries_total` $\times \frac{4}{k_{\text{fleet}}+1}$, Option 1 Piecewise, $k_{\text{fleet}} \le 3$). | **Query 5B**: 2-Stage Producer-Consumer Byte Ratio Inversion ($\rho = \frac{\text{sent}}{\text{sent}+\text{recv}} \ge 0.70$ + outbound byte $Z \ge 3.0\sigma$). |
 | **6** | **Narrow: SaaS & Workspace Data Plane** | **Bulk RAG Knowledge Harvesting & Low-and-Slow Vector Sync** ($H \cap M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 6A**: 2-Stage Multilevel Workspace Activity Triad (`auth`, `download`, `change` vs. 30d personal & fleet baselines). | **Query 6B**: 2-Stage Longitudinal CUSUM Drift (`metrics.network_bytes_outbound`, Option 1 Piecewise + slack $k=0.5\sigma$ over $\ge 2$ drift days). |
-| **7** | **Capstone & Cross-Plane Bridge (`Option 3` UDM Loopback)** | **Entity-to-Raw Forensic Enrichment & Multi-Scenario Overlap Convergence** ($H \cap M_{\text{AI}}$ & $M_{\text{bot}} \cap M_{\text{AI}} \to M_{\text{AI}}$) | **Query 7A**: 2-Stage Cross-Plane UDM Loopback Entity Bridge (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH` $\rightarrow$ raw `PROCESS_LAUNCH`, `NETWORK_CONNECTION`, `RESOURCE_READ`, `USER_RESOURCE_ACCESS`). | **Query 7B**: 2-Stage Capstone Multi-Scenario Euclidean Threat Norm Convergence (`$distinct_scenarios_matched >= 2`, `$capstone_threat_norm_sq >= 18.0`). |
+| **7** | **Narrow: Unsanctioned Service Accounts & Cloud CRUD Provisioning** | **Service Account Rail Breakout, Epistemic CRUD Denials & Autonomous Provisioning** ($M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 7A**: 2-Stage Unsanctioned Service Account Cloud CRUD Failure & Provisioning Drift (`resource_read_fail`, `resource_written_fail`, `resource_creation_fail`, `resource_creation_success`, caller IP origin Z-score). | **Query 7B**: 4-Stage Roll-Up Sector Fusion (`metrics.resource_creation_total` across novel/surging cloud services + `metrics.network_bytes_outbound`, Option 1 Piecewise). |
+| **8** | **Narrow: DNS Shadow AI Proxy & Covert Subdomain Tunneling** | **Rare AI Gateway Resolution, NXDOMAIN Probing & High-Entropy DNS Payloads** ($H \cap M_{\text{AI}}$ & $M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 8A**: 3-Stage DNS Activity Triad (`metrics.dns_queries_total` + `metrics.dns_queries_fail`) joined with `DERIVED_CONTEXT` Rare Domain Prevalence ($\le 3$ hosts in 10d Entity Graph). | **Query 8B**: 2-Stage DNS Subdomain Shannon Character-Class Entropy & Length Ratio (`network.dns.questions.name` length $\ge 45$, `$shannon_entropy_score >= 7.5`). |
+| **9** | **Cross-Plane: Identity Multiplexing & EDR Alert Velocity Fusion** | **External Cloud/AI ASN Login Multiplexing & Sub-Threshold EDR/DLP Alert Clustering** ($H \cap M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 9A**: 2-Stage External Cloud ASN & OAuth Application Credential Multiplexing (`metrics.auth_attempts_total` by `organization_name` and `target.application`, Option 1 Piecewise). | **Query 9B**: 4-Stage Roll-Up Sector Fusion (`metrics.alert_event_name_count` across distinct EDR/DLP rules + `metrics.network_bytes_outbound`, Option 1 Piecewise). |
+| **10** | **Capstone & Cross-Plane Bridge (`Option 3` UDM Loopback)** | **Entity-to-Raw Forensic Enrichment & Multi-Scenario Overlap Convergence** ($H \cap M_{\text{AI}}$ & $M_{\text{bot}} \cap M_{\text{AI}} \to M_{\text{AI}}$) | **Query 10A**: 2-Stage Cross-Plane UDM Loopback Entity Bridge (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH` $\rightarrow$ raw `PROCESS_LAUNCH`, `NETWORK_CONNECTION`, `RESOURCE_READ`, `USER_RESOURCE_ACCESS`). | **Query 10B**: 2-Stage Capstone Multi-Scenario Euclidean Threat Norm Convergence (`$distinct_scenarios_matched >= 2`, `$capstone_threat_norm_sq >= 18.0`). |
 
 ---
 
@@ -1312,16 +1315,765 @@ order:
 
 ---
 
-### Scenario 7: Multi-Query Entity Bridging & Capstone UDM Loopback Convergence (`Option 3` Cross-Query Connective Tissue)
+### Scenario 7: Narrow Context (Unsanctioned Service Accounts & Autonomous Cloud CRUD Provisioning Drift)
 
-Individual behavioral queries in Scenarios 1–6 frequently fire inside ambiguous Venn overlap regimes—for example, a developer workstation exhibiting high HTTP velocity during working hours ($H \cap M_{\text{AI}}$) or a headless service account triggering bursty cloud API permission denials ($M_{\text{bot}} \cap M_{\text{AI}}$). Furthermore, statistical 30-day `metrics.*` stages aggregate away raw forensic artifacts such as full process file paths or specific cloud resource names.
+In enterprise cloud environments, the most dangerous Shadow AI pattern is **Service Account Co-Option**: developers extract long-lived service account keys (`@*.iam.gserviceaccount.com`, `arn:aws:iam::*:role/*`, or `svc-*` identities) and wire them into autonomous coding agents, MCP servers, or LangChain/CrewAI pipelines. While Scenario 4 examined aggregate `metrics.resource_*_total` volume across all identities, **unsanctioned service accounts require a dedicated behavioral discipline** built around **directional CRUD outcomes (`_fail` vs. `_success`)**:
+1. **Unsanctioned Service Account CRUD Failure & Provisioning Drift (`Query 7A`)**: A deterministic CI/CD or Terraform service account ($M_{\text{bot}}$) operates on rigid, pre-authorized resource rails with near-zero permission errors. When a service account is handed to an autonomous agent ($M_{\text{bot}} \cap M_{\text{AI}}$), it exhibits **epistemic CRUD failures** (`metrics.resource_read_fail`, `metrics.resource_written_fail`, `metrics.resource_creation_fail`) alongside **autonomous resource provisioning** (`metrics.resource_creation_success` — spinning up unauthorized GPU instances, Vertex/Bedrock endpoints, Cloud Run services, or storage buckets) or **caller IP origin drift** (`principal.ip` shifting from a known build runner to a developer workstation or external AI host).
+2. **4-Stage Cloud Resource Creation + Network Egress Roll-Up Fusion (`Query 7B`)**: Because `metrics.resource_creation_total` is a composite-keyed metric (`principal.user.userid`, `metadata.product_name`, `metadata.vendor_name`), joining it directly against `metrics.network_bytes_outbound` (`principal.user.userid`) requires a **4-Stage Roll-Up Sector Fusion** architecture. Stage 1 evaluates per-service (`product_name`) provisioning anomalies and novel cloud services (`$d_days <= 4`), Stage 2 rolls those up to the identity level, and Stage 4 computes the joint Euclidean threat norm ($\sqrt{Z_{\text{create}}^2 + Z_{\text{egress}}^2} \ge 3.5\sigma$) with outbound network byte volume—capturing identities that spin up shadow cloud infrastructure and immediately stream training, vector, or prompt payloads.
 
-When `agentic_ueba`'s `PlaybookRunner` executes Queries 1A–6B, every outlier row passing a query's root `condition:` is normalized into a native UDM `GENERIC_EVENT` with `metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"` and flushed to Chronicle via `ImportEvents`. Because `PlaybookRunner._is_capstone_query()` detects `"PLAYBOOK_BEHAVIORAL_HUNT_MATCH"` in Scenario 7, the runner automatically flushes all upstream findings (`1A`–`6B`) and executes the `verify_udm_run_indexed()` synchronization barrier before running **Query 7A** and **Query 7B**:
+#### Query 7A: 2-Stage Unsanctioned Service Account Cloud CRUD Failure & Provisioning Drift (`secops-risk-metrics-multistage`)
 
-1. **Cross-Plane Stage 1 UDM Loopback Entity Key $\rightarrow$ Stage 2 Raw Telemetry Bridge (`Query 7A`)**: Uses the UDM loopback stream (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH`) as an automated Stage 1 candidate entity selector (`$entity = strings.coalesce(principal.user.userid, principal.asset.hostname, principal.ip[0])`) and inner-joins those exact candidate keys against Stage 2 raw UDM events (`PROCESS_LAUNCH`, `NETWORK_CONNECTION`, `RESOURCE_READ`, `USER_RESOURCE_ACCESS`) to harvest concrete forensic indicators (`$sample_processes`, `$sample_resources`, `$total_sent_bytes`) without requiring external data tables or manual IP/user seeding.
-2. **Capstone Multi-Scenario Shadow AI Entity Convergence (`Query 7B`)**: Deduplicates `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` events per `($entity, $query_name)` across a 7-day lookback window and computes the cross-scenario Euclidean L2 threat norm ($\text{capstone\_threat\_score} = \sqrt{\sum Z_i^2}$). Requiring `$distinct_scenarios_matched >= 2` and `$capstone_threat_norm_sq >= 18.0` ($\ge 4.24\sigma$ combined multi-scenario radius) resolves the $H \cap M_{\text{AI}}$ and $M_{\text{bot}} \cap M_{\text{AI}}$ overlap zones into high-confidence Agentic AI ($M_{\text{AI}}$) detections.
+```yara
+// ============================================================================
+// ARCHITECTURE: 2-STAGE UNSANCTIONED SERVICE ACCOUNT CLOUD CRUD FAILURE & PROVISIONING PIPELINE
+// Goal: Detect service accounts co-opted by Shadow AI agents exhibiting epistemic CRUD failures, autonomous resource creation, or novel caller origin IPs.
+// Statistical Model: Option 1 Piecewise Cold-Start Hurdle + 4-Family Cloud CRUD Failure & Provisioning Isolation
+// ============================================================================
 
-#### Query 7A: 2-Stage Cross-Plane UDM Loopback Entity Key to Raw Telemetry Bridge (`secops-statistical-hunter`)
+stage stage1_extract {
+    (
+        metadata.event_type = "RESOURCE_READ" or
+        metadata.event_type = "USER_RESOURCE_ACCESS" or
+        metadata.event_type = "RESOURCE_WRITTEN" or
+        metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT" or
+        metadata.event_type = "RESOURCE_CREATION" or
+        metadata.event_type = "USER_RESOURCE_CREATION"
+    )
+    $sa = principal.user.userid
+    $vendor = metadata.vendor_name
+    $product = metadata.product_name
+    $resource = target.resource.name
+    $ip = principal.ip
+
+    $sa != ""
+    ($sa = /@.*gserviceaccount\.com$/ nocase or $sa = /^arn:aws:(iam|sts)::/ nocase or $sa = /(svc|service|bot|agent)/ nocase)
+    $vendor != ""
+    $product != ""
+    $resource != ""
+    $ip != ""
+
+  match:
+    $sa, $vendor, $product, $resource, $ip by 1d
+
+  outcome:
+    $obs_read_fails = sum(if((metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS") and not security_result.action = "ALLOW", 1, 0))
+    $obs_write_fails = sum(if((metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT") and not security_result.action = "ALLOW", 1, 0))
+    $obs_create_fails = sum(if((metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION") and not security_result.action = "ALLOW", 1, 0))
+    $obs_creates_ok = sum(if((metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION") and security_result.action = "ALLOW", 1, 0))
+
+    $rf_avg = max(metrics.resource_read_fail(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+    $rf_std = max(metrics.resource_read_fail(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+    $wf_avg = max(metrics.resource_written_fail(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+    $wf_std = max(metrics.resource_written_fail(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+    $cf_avg = max(metrics.resource_creation_fail(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+    $cf_std = max(metrics.resource_creation_fail(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+    $cs_avg = max(metrics.resource_creation_success(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+    $cs_std = max(metrics.resource_creation_success(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+    $origin_avg = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $origin_std = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $dest_days = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+}
+
+stage stage2_origin_rollup {
+    $sa = $stage1_extract.sa
+    $product = $stage1_extract.product
+    $ip = $stage1_extract.ip
+    $ws = $stage1_extract.window_start
+
+  match:
+    $sa, $product, $ip, $ws by 1d
+
+  outcome:
+    $ip_total_activity = sum($stage1_extract.obs_read_fails) + sum($stage1_extract.obs_write_fails) + sum($stage1_extract.obs_create_fails) + sum($stage1_extract.obs_creates_ok)
+    $origin_avg = max($stage1_extract.origin_avg)
+    $origin_std = max($stage1_extract.origin_std)
+    $ip_origin_z = ($ip_total_activity - $origin_avg) / if($origin_std > 0, $origin_std, 1.0)
+}
+
+$sa = $stage1_extract.sa
+$product = $stage1_extract.product
+$resource = $stage1_extract.resource
+$ip = $stage1_extract.ip
+$ws = $stage1_extract.window_start
+$sa = $stage2_origin_rollup.sa
+$product = $stage2_origin_rollup.product
+$ip = $stage2_origin_rollup.ip
+$ws = $stage2_origin_rollup.ws
+
+match:
+  $sa, $product, $resource, $ws by 1d
+
+outcome:
+  $obs_read_fails = sum($stage1_extract.obs_read_fails)
+  $obs_write_fails = sum($stage1_extract.obs_write_fails)
+  $obs_create_fails = sum($stage1_extract.obs_create_fails)
+  $obs_creates_ok = sum($stage1_extract.obs_creates_ok)
+  $dest_days = max($stage1_extract.dest_days)
+  $distinct_ips = count_distinct($stage1_extract.ip)
+
+  $rf_z = ($obs_read_fails - max($stage1_extract.rf_avg)) / if(max($stage1_extract.rf_std) > 0, max($stage1_extract.rf_std), 1.0)
+  $wf_z = ($obs_write_fails - max($stage1_extract.wf_avg)) / if(max($stage1_extract.wf_std) > 0, max($stage1_extract.wf_std), 1.0)
+  $cf_z = ($obs_create_fails - max($stage1_extract.cf_avg)) / if(max($stage1_extract.cf_std) > 0, max($stage1_extract.cf_std), 1.0)
+  $cs_z = ($obs_creates_ok - max($stage1_extract.cs_avg)) / if(max($stage1_extract.cs_std) > 0, max($stage1_extract.cs_std), 1.0)
+  $origin_z = max($stage2_origin_rollup.ip_origin_z)
+
+  $mature_risk = if($rf_z > 0, $rf_z, 0.0) + if($wf_z > 0, $wf_z, 0.0) + if($cf_z > 0, $cf_z, 0.0) + if($cs_z > 0, $cs_z, 0.0) + if($origin_z > 0, $origin_z, 0.0)
+  $total_events = $obs_read_fails + $obs_write_fails + $obs_create_fails + $obs_creates_ok
+  $hurdle_risk = math.log($total_events + 1.0) * 2.5
+
+  // Option 1 Piecewise Cold-Start Hurdle (<= 4 active days) vs Mature 30d CRUD Risk (>= 5 active days)
+  $unified_threat_score = if($dest_days <= 4, $hurdle_risk, $mature_risk)
+  $z_score = $unified_threat_score
+
+condition:
+  $unified_threat_score >= 3.0 and ($dest_days >= 5 or $dest_days <= 4 or $obs_create_fails > 0 or $obs_creates_ok > 0)
+
+order:
+  $unified_threat_score desc
+```
+
+#### Query 7B: 4-Stage Roll-Up Sector Fusion on Cloud Resource Creation and Outbound Egress (`secops-risk-metrics-multistage`)
+
+```yara
+// ============================================================================
+// ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (CLOUD RESOURCE CREATION + NETWORK EGRESS)
+// Goal: Detect identities autonomously provisioning cloud resources across novel services while streaming high-volume outbound network payloads.
+// Statistical Model: Option 1 Piecewise Cold-Start Hurdle + 4-Stage Roll-Up Euclidean Sector Fusion (rollup_sector_fusion_4stage.yl2)
+// ADVISORY: Sector A (metrics.resource_creation_total) is a composite-only metric; its Z-score represents the peak per-service (product_name) anomaly for the user.
+// ============================================================================
+
+stage sector_a_detail {
+    (metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION")
+    principal.user.userid = $entity
+    $entity != ""
+    metadata.product_name = $product_name
+    $product_name != ""
+    metadata.vendor_name = $vendor_name
+    $vendor_name != ""
+
+  match:
+    $entity, $product_name, $vendor_name by 1d
+
+  outcome:
+    $d_obs = count(metadata.id)
+    $d_avg = max(metrics.resource_creation_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        metadata.product_name: metadata.product_name,
+        metadata.vendor_name: metadata.vendor_name
+    ))
+    $d_std = max(metrics.resource_creation_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        metadata.product_name: metadata.product_name,
+        metadata.vendor_name: metadata.vendor_name
+    ))
+    $d_days = max(metrics.resource_creation_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        metadata.product_name: metadata.product_name,
+        metadata.vendor_name: metadata.vendor_name
+    ))
+    $d_z_raw = ($d_obs - $d_avg) / if($d_std > 0, $d_std, 1.0)
+    $d_z_pos = if($d_z_raw > 0, $d_z_raw, 0.0)
+    $d_hurdle = math.log($d_obs + 1.0) * 2.5
+    $d_z = if($d_days <= 4, $d_hurdle, $d_z_pos)
+    $d_hot = if($d_days >= 5 and $d_z_raw >= 3.0, 1, 0)
+    $d_novel = if($d_days <= 4, 1, 0)
+}
+
+stage sector_a {
+    $entity = $sector_a_detail.entity
+    $ws = $sector_a_detail.window_start
+
+  match:
+    $entity, $ws by 1d
+
+  outcome:
+    $a_obs = sum($sector_a_detail.d_obs)
+    $a_keys = count_distinct($sector_a_detail.product_name)
+    $a_hot_keys = sum($sector_a_detail.d_hot)
+    $a_novel_keys = sum($sector_a_detail.d_novel)
+    $a_days = max($sector_a_detail.d_days)
+    $z_a = max($sector_a_detail.d_z)
+}
+
+stage sector_b {
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
+    principal.user.userid = $entity
+    $entity != ""
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $b_obs = sum(network.sent_bytes)
+    $b_avg = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: avg,
+        principal.user.userid: principal.user.userid
+    ))
+    $b_std = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+        principal.user.userid: principal.user.userid
+    ))
+    $b_days = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid
+    ))
+    $z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)
+    $z_b_pos = if($z_b_raw > 0, $z_b_raw, 0.0)
+    $b_hurdle_raw = math.log($b_obs + 1.0) / 4.0
+    $b_hurdle = if($b_obs >= 1000000, $b_hurdle_raw, 0.0)
+    $z_b = if($b_days <= 4, $b_hurdle, $z_b_pos)
+}
+
+$entity = $sector_a.entity
+$entity = $sector_b.entity
+$ws = $sector_a.window_start
+$ws = $sector_b.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $a_observed = max($sector_a.a_obs)
+  $distinct_services = max($sector_a.a_keys)
+  $surging_services = max($sector_a.a_hot_keys)
+  $novel_services = max($sector_a.a_novel_keys)
+  $a_active_days = max($sector_a.a_days)
+  $b_observed = max($sector_b.b_obs)
+  $b_active_days = max($sector_b.b_days)
+
+  $z_a = max($sector_a.z_a)
+  $z_b = max($sector_b.z_b)
+
+  $z_a_sq = $z_a * $z_a
+  $z_b_sq = $z_b * $z_b
+  $composite_threat_norm_sq = $z_a_sq + $z_b_sq
+  $unified_threat_score = math.sqrt($composite_threat_norm_sq)
+
+condition:
+  $composite_threat_norm_sq >= 12.25
+  and $unified_threat_score >= 3.5
+
+order:
+  $unified_threat_score desc
+```
+
+---
+
+### Scenario 8: Narrow Context (DNS Shadow AI Proxy, Rare Gateway Discovery & Subdomain Tunneling)
+
+Even when SSL/TLS inspection is bypassed, custom reverse proxies are used, or HTTP proxy logs are absent on headless server subnets, **DNS acts as an inescapable control-plane proxy for Shadow AI activity**:
+1. **DNS Activity Triad + `DERIVED_CONTEXT` Rare AI Gateway Discovery (`Query 8A`)**: Autonomous agents generating web search tool calls, fetching external MCP schemas, or probing hallucinated internal/external endpoints trigger simultaneous surges in `metrics.dns_queries_total` and `metrics.dns_queries_fail` (`NXDOMAIN`). By joining the 30-day DNS behavioral triad in Stage 1 against Chronicle's **Entity Context Graph (`DERIVED_CONTEXT` `DOMAIN_NAME` prevalence)** in Stage 3 (`rolling_max <= 3` across a 10-day window), we isolate hosts experiencing a DNS velocity or failure surge that are simultaneously resolving newly adopted, low-prevalence external AI gateways, Cloudflare tunnels, or custom proxy domains.
+2. **DNS Subdomain Shannon Entropy & Outbound Byte Proxy (`Query 8B`)**: Certain Shadow AI CLI wrappers, telemetry beacons, and covert agent bridges encode serialized context tokens, session IDs, or exfiltrated snippets directly into Base64/Hex DNS subdomain labels (`<encoded-chunk>.<session>.custom-gateway.tld`). Measuring **Shannon character-class information density and query length ($\ge 45$ characters, `$shannon_entropy_score >= 7.5`)** per `(hostname,network.dns.questions.name)` exposes DNS-based AI proxies and covert channels without relying on domain blocklists.
+
+#### Query 8A: 3-Stage DNS Activity Triad and Rare AI Gateway Domain Discovery (`secops-risk-metrics-multistage`)
+
+```yara
+// ============================================================================
+// ARCHITECTURE: 3-STAGE DNS ACTIVITY TRIAD & RARE AI GATEWAY DOMAIN DISCOVERY (DERIVED_CONTEXT)
+// Goal: Surface endpoints with 30-day DNS query or NXDOMAIN surges that resolve enterprise-rare domains (<= 3 hosts in 10d Entity Graph).
+// Statistical Model: Option 1 Piecewise Cold-Start Hurdle + DNS Sibling Triad + Entity Graph Domain Prevalence (rare_destination_ecg_3stage.yl2)
+// ============================================================================
+
+stage sector_a {
+    (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
+    principal.asset.hostname = $host
+    $host != ""
+
+  match:
+    $host by 1d
+
+  outcome:
+    $dns_total_obs = count(metadata.id)
+    $dns_fail_obs = sum(if(network.dns.response_code != 0, 1, 0))
+    $dns_succ_obs = sum(if(network.dns.response_code = 0, 1, 0))
+
+    $tot_avg = max(metrics.dns_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $tot_std = max(metrics.dns_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $tot_days = max(metrics.dns_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $fail_avg = max(metrics.dns_queries_fail(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $fail_std = max(metrics.dns_queries_fail(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+
+    $z_total_raw = ($dns_total_obs - $tot_avg) / if($tot_std > 0, $tot_std, 1.0)
+    $z_fail_raw = ($dns_fail_obs - $fail_avg) / if($fail_std > 0, $fail_std, 1.0)
+    $z_total_pos = if($z_total_raw > 0, $z_total_raw, 0.0)
+    $z_fail_pos = if($z_fail_raw > 0, $z_fail_raw, 0.0)
+
+    $mature_z = if($z_total_pos > $z_fail_pos, $z_total_pos, $z_fail_pos)
+    $hurdle_z = math.log($dns_total_obs + 1.0) * 1.5
+    $z_sector = if($tot_days <= 4, $hurdle_z, $mature_z)
+}
+
+stage contacts {
+    (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
+    principal.asset.hostname = $host
+    network.dns.questions.name = $dest
+    $host != ""
+    $dest != ""
+
+  match:
+    $host, $dest
+
+  outcome:
+    $contact_events = count(metadata.id)
+}
+
+stage rare_dest {
+    $g.graph.metadata.source_type = "DERIVED_CONTEXT"
+    $g.graph.metadata.entity_type = "DOMAIN_NAME"
+    $g.graph.entity.domain.name = $dest
+    $g.graph.entity.domain.prevalence.day_count = 10
+    $g.graph.entity.domain.prevalence.rolling_max <= 3
+    $g.graph.entity.domain.prevalence.rolling_max > 0
+
+  match:
+    $dest
+
+  outcome:
+    $prevalence = max($g.graph.entity.domain.prevalence.rolling_max)
+}
+
+$host = $sector_a.host
+$host = $contacts.host
+$dest = $contacts.dest
+$dest = $rare_dest.dest
+
+match:
+  $host by 1d
+
+outcome:
+  $observed_dns_total = max($sector_a.dns_total_obs)
+  $observed_dns_fail = max($sector_a.dns_fail_obs)
+  $baseline_avg = max($sector_a.tot_avg)
+  $active_days = max($sector_a.tot_days)
+  $z_sector = max($sector_a.z_sector)
+  $rare_destinations = array_distinct($contacts.dest)
+  $rare_destination_count = count_distinct($contacts.dest)
+  $min_prevalence = min($rare_dest.prevalence)
+  $unified_threat_score = $z_sector + math.log($rare_destination_count + 1.0)
+  $z_score = $unified_threat_score
+
+condition:
+  $unified_threat_score >= 3.0
+  and $rare_destination_count >= 1
+
+order:
+  $unified_threat_score desc
+```
+
+#### Query 8B: 2-Stage DNS Subdomain Shannon Entropy and Outbound Byte Proxy (`secops-statistical-hunter`)
+
+```yara
+// ============================================================================
+// ARCHITECTURE: 2-STAGE DNS SUBDOMAIN SHANNON ENTROPY & OUTBOUND BYTE PROXY PIPELINE
+// Goal: Detect Shadow AI CLI tools and covert tunnels encoding prompt or telemetry payloads into high-entropy DNS query names.
+// Statistical Model: Shannon Character-Class Information Density & Length Ratio (shannon_entropy_character_2stage.yl2)
+// ============================================================================
+
+stage entity_baseline {
+    (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
+    principal.asset.hostname = $entity
+    $entity != ""
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $total_events = count(metadata.id)
+    $distinct_domains = count_distinct(network.dns.questions.name)
+}
+
+stage token_observation {
+    (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
+    principal.asset.hostname = $entity
+    $entity != ""
+    $token = network.dns.questions.name
+    $token != ""
+
+  match:
+    $entity, $token by 1d
+
+  outcome:
+    $token_count = count(metadata.id)
+    $token_length = max(strings.length($token))
+    $token_sent_bytes = sum(network.sent_bytes)
+}
+
+$entity = $entity_baseline.entity
+$entity = $token_observation.entity
+$token = $token_observation.token
+
+match:
+  $entity, $token by 1d
+
+outcome:
+  $total_activity = max($entity_baseline.total_events)
+  $distinct_host_domains = max($entity_baseline.distinct_domains)
+  $token_executions = max($token_observation.token_count)
+  $token_bytes = max($token_observation.token_sent_bytes)
+  $raw_length = max($token_observation.token_length)
+  $safe_length = if($raw_length > 0, $raw_length, 1)
+
+  $log_len = math.log($safe_length)
+  $length_factor = if($safe_length >= 45, 2.0, 1.0)
+  $shannon_entropy_score = $log_len * $length_factor
+  $unified_threat_score = $shannon_entropy_score
+
+  $observation_count = $token_executions
+  $baseline_active_samples = $total_activity
+  $baseline_mean = $raw_length
+  $baseline_dispersion = $log_len
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = $distinct_host_domains
+
+condition:
+  $raw_length >= 45
+  and $token_executions >= 5
+  and $shannon_entropy_score >= 7.5
+
+order:
+  $shannon_entropy_score desc
+```
+
+---
+
+### Scenario 9: Cross-Plane Identity Multiplexing (External Cloud ASN / OAuth Auth) & Endpoint EDR Alert Velocity Fusion
+
+Two additional 30-day `metrics.*` families in the SecOps catalog capture the **identity perimeter** and **endpoint defense friction** of Shadow AI agents:
+1. **External Cloud ASN & OAuth Application Credential Multiplexing (`Query 9A`)**: When a user delegates their corporate credentials, session cookies, or OAuth tokens to a third-party cloud-hosted AI agent (e.g., an external coding agent, cloud browser automation platform, or SaaS copilot), `USER_LOGIN` events suddenly originate from a novel **Autonomous System Organization (`principal.ip_geo_artifact.network.organization_name`)** or target a novel **OAuth Application (`target.application`)**. By profiling both composite dimensions of `metrics.auth_attempts_total` simultaneously (`organization_name:user` and `application:user`), `Query 9A` detects corporate identities being multiplexed from unseen hosting providers or into unsanctioned SaaS AI applications.
+2. **4-Stage EDR Alert Velocity (`metrics.alert_event_name_count`) + Outbound Egress Fusion (`Query 9B`)**: Local autonomous agents frequently trip low-severity informational or medium-severity EDR/DLP behavioral rules (unsigned interpreter execution, keychain/credential-store reads, anomalous `/tmp` script execution, or sensitive file inspection) that do not individually page SOC analysts. Using a **4-Stage Roll-Up Sector Fusion** over `metrics.alert_event_name_count` (`principal.asset.hostname`, `security_result.rule_name`) and `metrics.network_bytes_outbound` (`principal.asset.hostname`), `Query 9B` detects endpoints experiencing a multi-rule EDR alert velocity surge at the exact moment they stream high-volume outbound payloads.
+
+#### Query 9A: 2-Stage External Cloud ASN and OAuth Application Credential Multiplexing (`secops-risk-metrics-multistage`)
+
+```yara
+// ============================================================================
+// ARCHITECTURE: 2-STAGE EXTERNAL CLOUD ASN & OAUTH APPLICATION CREDENTIAL MULTIPLEXING PIPELINE
+// Goal: Detect corporate identities authenticating from unseen external cloud/AI provider ASNs or surging against novel target applications.
+// Statistical Model: Option 1 Piecewise Cold-Start Hurdle + Dual-Dimension Auth Baseline (PRINCIPAL_NETWORK_ORGANIZATION_NAME & TARGET_APPLICATION)
+// ============================================================================
+
+stage stage1_extract {
+    metadata.event_type = "USER_LOGIN"
+    $user = target.user.userid
+    $asn_org = principal.ip_geo_artifact.network.organization_name
+    $app = target.application
+
+    $user != ""
+    $asn_org != ""
+    $app != ""
+
+  match:
+    $user, $asn_org, $app by 1d
+
+  outcome:
+    $obs_total = count(metadata.id)
+    $obs_fail = sum(if(security_result.action = "ALLOW", 0, 1))
+
+    $asn_avg = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.ip_geo_artifact.network.organization_name: principal.ip_geo_artifact.network.organization_name,
+        target.user.userid: target.user.userid
+    ))
+    $asn_std = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.ip_geo_artifact.network.organization_name: principal.ip_geo_artifact.network.organization_name,
+        target.user.userid: target.user.userid
+    ))
+    $asn_days = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.ip_geo_artifact.network.organization_name: principal.ip_geo_artifact.network.organization_name,
+        target.user.userid: target.user.userid
+    ))
+    $app_avg = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        target.application: target.application,
+        target.user.userid: target.user.userid
+    ))
+    $app_std = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        target.application: target.application,
+        target.user.userid: target.user.userid
+    ))
+    $app_days = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        target.application: target.application,
+        target.user.userid: target.user.userid
+    ))
+}
+
+stage stage2_asn_rollup {
+    $user = $stage1_extract.user
+    $asn_org = $stage1_extract.asn_org
+    $ws = $stage1_extract.window_start
+
+  match:
+    $user, $asn_org, $ws by 1d
+
+  outcome:
+    $asn_total_logins = sum($stage1_extract.obs_total)
+    $asn_avg = max($stage1_extract.asn_avg)
+    $asn_std = max($stage1_extract.asn_std)
+    $asn_days = max($stage1_extract.asn_days)
+    $asn_z_raw = ($asn_total_logins - $asn_avg) / if($asn_std > 0, $asn_std, 1.0)
+    $asn_z_pos = if($asn_z_raw > 0, $asn_z_raw, 0.0)
+    $asn_hurdle = math.log($asn_total_logins + 1.0) * 2.5
+    $asn_score = if($asn_days <= 4, $asn_hurdle, $asn_z_pos)
+}
+
+$user = $stage1_extract.user
+$asn_org = $stage1_extract.asn_org
+$app = $stage1_extract.app
+$ws = $stage1_extract.window_start
+$user = $stage2_asn_rollup.user
+$asn_org = $stage2_asn_rollup.asn_org
+$ws = $stage2_asn_rollup.ws
+
+match:
+  $user, $asn_org, $app, $ws by 1d
+
+outcome:
+  $observed_logins = sum($stage1_extract.obs_total)
+  $observed_fails = sum($stage1_extract.obs_fail)
+  $asn_active_days = max($stage1_extract.asn_days)
+  $app_active_days = max($stage1_extract.app_days)
+
+  $app_z_raw = ($observed_logins - max($stage1_extract.app_avg)) / if(max($stage1_extract.app_std) > 0, max($stage1_extract.app_std), 1.0)
+  $app_z_pos = if($app_z_raw > 0, $app_z_raw, 0.0)
+  $app_hurdle = math.log($observed_logins + 1.0) * 2.0
+  $app_score = if($app_active_days <= 4, $app_hurdle, $app_z_pos)
+
+  $asn_score = max($stage2_asn_rollup.asn_score)
+  $unified_threat_score = $asn_score + $app_score
+  $z_score = $unified_threat_score
+
+condition:
+  $observed_logins >= 2
+  and $unified_threat_score >= 3.5
+
+order:
+  $unified_threat_score desc
+```
+
+#### Query 9B: 4-Stage Roll-Up Sector Fusion on EDR Alert Velocity and Outbound Egress (`secops-risk-metrics-multistage`)
+
+```yara
+// ============================================================================
+// ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (EDR ALERT VELOCITY + NETWORK EGRESS)
+// Goal: Detect endpoints where local Shadow AI agents trigger clusters of low-severity EDR/DLP alerts alongside anomalous outbound network egress.
+// Statistical Model: Option 1 Piecewise Cold-Start Hurdle + 4-Stage Roll-Up Euclidean Sector Fusion (rollup_sector_fusion_4stage.yl2)
+// ADVISORY: Sector A (metrics.alert_event_name_count) is a composite-only metric; its Z-score represents the peak per-rule anomaly for the host.
+// ============================================================================
+
+stage sector_a_detail {
+    (metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS")
+    principal.asset.hostname = $entity
+    $entity != ""
+    security_result.rule_name = $security_result_rule_name
+    $security_result_rule_name != ""
+
+  match:
+    $entity, $security_result_rule_name by 1d
+
+  outcome:
+    $d_obs = count(metadata.id)
+    $d_avg = max(metrics.alert_event_name_count(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.asset.hostname: principal.asset.hostname,
+        security_result.rule_name: security_result.rule_name
+    ))
+    $d_std = max(metrics.alert_event_name_count(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.asset.hostname: principal.asset.hostname,
+        security_result.rule_name: security_result.rule_name
+    ))
+    $d_days = max(metrics.alert_event_name_count(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.asset.hostname: principal.asset.hostname,
+        security_result.rule_name: security_result.rule_name
+    ))
+    $d_z_raw = ($d_obs - $d_avg) / if($d_std > 0, $d_std, 1.0)
+    $d_z_pos = if($d_z_raw > 0, $d_z_raw, 0.0)
+    $d_hurdle = math.log($d_obs + 1.0) * 2.5
+    $d_z = if($d_days <= 4, $d_hurdle, $d_z_pos)
+    $d_hot = if($d_days >= 5 and $d_z_raw >= 3.0, 1, 0)
+    $d_novel = if($d_days <= 4, 1, 0)
+}
+
+stage sector_a {
+    $entity = $sector_a_detail.entity
+    $ws = $sector_a_detail.window_start
+
+  match:
+    $entity, $ws by 1d
+
+  outcome:
+    $a_obs = sum($sector_a_detail.d_obs)
+    $a_keys = count_distinct($sector_a_detail.security_result_rule_name)
+    $a_hot_keys = sum($sector_a_detail.d_hot)
+    $a_novel_keys = sum($sector_a_detail.d_novel)
+    $a_days = max($sector_a_detail.d_days)
+    $z_a = max($sector_a_detail.d_z)
+}
+
+stage sector_b {
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
+    principal.asset.hostname = $entity
+    $entity != ""
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $b_obs = sum(network.sent_bytes)
+    $b_avg = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: avg,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $b_std = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $b_days = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)
+    $z_b_pos = if($z_b_raw > 0, $z_b_raw, 0.0)
+    $b_hurdle_raw = math.log($b_obs + 1.0) / 4.0
+    $b_hurdle = if($b_obs >= 1000000, $b_hurdle_raw, 0.0)
+    $z_b = if($b_days <= 4, $b_hurdle, $z_b_pos)
+}
+
+$entity = $sector_a.entity
+$entity = $sector_b.entity
+$ws = $sector_a.window_start
+$ws = $sector_b.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $a_observed = max($sector_a.a_obs)
+  $distinct_rules = max($sector_a.a_keys)
+  $surging_rules = max($sector_a.a_hot_keys)
+  $novel_rules = max($sector_a.a_novel_keys)
+  $a_active_days = max($sector_a.a_days)
+  $b_observed = max($sector_b.b_obs)
+  $b_active_days = max($sector_b.b_days)
+
+  $z_a = max($sector_a.z_a)
+  $z_b = max($sector_b.z_b)
+
+  $z_a_sq = $z_a * $z_a
+  $z_b_sq = $z_b * $z_b
+  $composite_threat_norm_sq = $z_a_sq + $z_b_sq
+  $unified_threat_score = math.sqrt($composite_threat_norm_sq)
+
+condition:
+  $composite_threat_norm_sq >= 12.25
+  and $unified_threat_score >= 3.5
+
+order:
+  $unified_threat_score desc
+```
+
+---
+
+### Scenario 10: Multi-Query Entity Bridging & Capstone UDM Loopback Convergence (`Option 3` Cross-Query Connective Tissue)
+
+Individual behavioral queries in Scenarios 1–9 frequently fire inside ambiguous Venn overlap regimes—for example, a developer workstation exhibiting high HTTP velocity during working hours ($H \cap M_{\text{AI}}$) or a headless service account triggering bursty cloud API permission denials ($M_{\text{bot}} \cap M_{\text{AI}}$). Furthermore, statistical 30-day `metrics.*` stages aggregate away raw forensic artifacts such as full process file paths or specific cloud resource names.
+
+When `agentic_ueba`'s `PlaybookRunner` executes Queries 1A–9B, every outlier row passing a query's root `condition:` is normalized into a native UDM `GENERIC_EVENT` with `metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"` and flushed to Chronicle via `ImportEvents`. Because `PlaybookRunner._is_capstone_query()` detects `"PLAYBOOK_BEHAVIORAL_HUNT_MATCH"` in Scenario 10, the runner automatically flushes all upstream findings (`1A`–`9B`) and executes the `verify_udm_run_indexed()` synchronization barrier before running **Query 10A** and **Query 10B**:
+
+1. **Cross-Plane Stage 1 UDM Loopback Entity Key $\rightarrow$ Stage 2 Raw Telemetry Bridge (`Query 10A`)**: Uses the UDM loopback stream (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH`) as an automated Stage 1 candidate entity selector (`$entity = strings.coalesce(principal.user.userid, principal.asset.hostname, principal.ip[0])`) and inner-joins those exact candidate keys against Stage 2 raw UDM events (`PROCESS_LAUNCH`, `NETWORK_CONNECTION`, `RESOURCE_READ`, `USER_RESOURCE_ACCESS`) to harvest concrete forensic indicators (`$sample_processes`, `$sample_resources`, `$total_sent_bytes`) without requiring external data tables or manual IP/user seeding.
+2. **Capstone Multi-Scenario Shadow AI Entity Convergence (`Query 10B`)**: Deduplicates `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` events per `($entity, $query_name)` across a 7-day lookback window and computes the cross-scenario Euclidean L2 threat norm ($\text{capstone\_threat\_score} = \sqrt{\sum Z_i^2}$). Requiring `$distinct_scenarios_matched >= 2` and `$capstone_threat_norm_sq >= 18.0` ($\ge 4.24\sigma$ combined multi-scenario radius) resolves the $H \cap M_{\text{AI}}$ and $M_{\text{bot}} \cap M_{\text{AI}}$ overlap zones into high-confidence Agentic AI ($M_{\text{AI}}$) detections.
+
+#### Query 10A: 2-Stage Cross-Plane UDM Loopback Entity Key to Raw Telemetry Bridge (`secops-statistical-hunter`)
 
 ```yara
 // ============================================================================
@@ -1402,12 +2154,12 @@ order:
   $unified_threat_score desc
 ```
 
-#### Query 7B: Capstone Multi-Scenario Shadow AI Entity Convergence via UDM Loopback (`secops-statistical-hunter`)
+#### Query 10B: Capstone Multi-Scenario Shadow AI Entity Convergence via UDM Loopback (`secops-statistical-hunter`)
 
 ```yara
 // ============================================================================
 // ARCHITECTURE: CAPSTONE UDM LOOPBACK CONVERGENCE PIPELINE (OPTION 3)
-// Goal: Correlate normalized UEBA hunt matches across all Shadow AI scenarios (1A-6B) via UDM Loopback to resolve H ∩ M_AI and M_bot ∩ M_AI overlap regimes into high-confidence Agentic AI detections.
+// Goal: Correlate normalized UEBA hunt matches across all Shadow AI scenarios (1A-9B) via UDM Loopback to resolve H ∩ M_AI and M_bot ∩ M_AI overlap regimes into high-confidence Agentic AI detections.
 // Statistical Model: Cross-Scenario Euclidean Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0)
 // Skill: secops-statistical-hunter
 // ============================================================================
@@ -1477,7 +2229,7 @@ curl -X POST "http://localhost:8080/api/v1/playbooks" \
     "run_immediately": true
   }'
 
-# 2. Trigger an on-demand single pass across all 14 queries (12 upstream + 2 UDM Loopback Capstone/Bridge)
+# 2. Trigger an on-demand single pass across all 20 queries (18 upstream + 2 UDM Loopback Capstone/Bridge)
 curl -X POST "http://localhost:8080/api/v1/playbooks/run" \
   -H "Content-Type: application/json" \
   -d '{
