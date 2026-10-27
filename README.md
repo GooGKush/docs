@@ -13,6 +13,23 @@ Technical articles, threat hunting case studies, and reference guides for multi-
   * Provides 20 live-compiler-verified multi-stage YARA-L 2.0 queries (featuring Option 1 inline piecewise cold-start + mature 30-day `metrics.*` baselines, `secops-statistical-hunter` raw telemetry models, and Option 3 UDM Loopback cross-query entity bridging and Capstone convergence via `PLAYBOOK_BEHAVIORAL_HUNT_MATCH`) across Holistic Cross-Resource, Network/Proxy, Endpoint/EDR, Cloud Control Plane, Unsanctioned Service Account CRUD Provisioning, DNS Proxy/Tunneling, Cross-Plane Identity Multiplexing & EDR Alert Velocity, and SaaS/Workspace contexts.
   * Fully compatible with the programmatic `PlaybookRunner` engine in `GooGKush/agentic-ueba`.
 
+## Curated Detections UEBA Hunting Playbooks
+
+Cyclical multi-stage UEBA and statistical hunting playbooks supplementing Google SecOps Curated Detections across all 12 rule categories (featuring Option 1 inline piecewise cold-start + 30-day baselines and Option 3 UDM Loopback Capstone correlation with `run_id` read-after-write validation):
+
+* **[Chrome Enterprise Premium Threats UEBA Hunting](chrome-enterprise-premium-ueba-hunting.md)**
+* **[Cloud Threats UEBA Hunting](cloud-threats-ueba-hunting.md)**
+* **[Windows Threats UEBA Hunting](windows-threats-ueba-hunting.md)**
+* **[Linux Threats UEBA Hunting](linux-threats-ueba-hunting.md)**
+* **[macOS Threats UEBA Hunting](macos-threats-ueba-hunting.md)**
+* **[Composite Rules UEBA Hunting](composite-rules-ueba-hunting.md)**
+* **[Applied Threat Intelligence (ATI) Indicator Prioritization UEBA Hunting](indicator-prioritization-ueba-hunting.md)**
+* **[Non-Prioritized IOC Matching UEBA Hunting](non-prioritized-ioc-matching-ueba-hunting.md)**
+* **[Mandiant Hunting UEBA Playbook](mandiant-hunting-ueba-hunting.md)**
+* **[Risk Analytics UEBA Hunting](risk-analytics-ueba-hunting.md)**
+* **[Vendor Alerts UEBA Hunting](vendor-alerts-ueba-hunting.md)**
+* **[Third-Party Vendor Alerts UEBA Hunting](third-party-vendor-alerts-ueba-hunting.md)**
+
 ## Related Repositories
 
 * [`GooGKush/secops-statistical-hunter`](https://github.com/GooGKush/secops-statistical-hunter) — Multi-stage statistical outlier hunting, Bayesian updating, and Entity Context Graph enrichment over raw UDM telemetry.
