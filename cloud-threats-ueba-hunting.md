@@ -1,5 +1,7 @@
 # Hunting Multi-Cloud, Kubernetes, Serverless & Identity Threats with Multi-Stage Behavioral Analytics in Google SecOps
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 ## 1. Architectural Overview: How Multi-Stage UEBA Complements Curated Detections
 
 The **Cloud Threats** curated detection suite provides foundational coverage across AWS, Google Cloud (GCP), Microsoft Azure / Entra ID, and Kubernetes environments—monitoring high-risk IAM modifications, credential issuance, cloud storage exposure, serverless execution, and container control-plane tampering.
@@ -42,6 +44,8 @@ Consolidates IAM privilege escalation and token impersonation across GCP, AWS, a
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect rare cloud IAM policy mutations, service account impersonation, and token/credential minting transitions per user via Markov 2-Gram Surprisal.
 // Target Telemetry: UDM_EVENTS (USER_RESOURCE_UPDATE_PERMISSIONS, USER_RESOURCE_UPDATE_CONTENT, RESOURCE_PERMISSIONS_CHANGE, RESOURCE_WRITTEN)
 // Statistical Model: Markov 2-Gram Transition Probability & Information Surprisal (I = -ln(P(Child | Parent)))
@@ -143,6 +147,8 @@ Rolls up 30-day composite `metrics.resource_written_success` (capturing `RESOURC
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Fuse 30-day cloud resource/IAM write anomalies (metrics.resource_written_success) with authentication surges (metrics.auth_attempts_success) per principal.
 // Statistical Model: 4-Stage Roll-Up Sector Fusion (D^2 = Z_write^2 + Z_auth^2 >= 12.25)
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (COMPOSITE-ONLY METRIC + ENTITY-KEYED METRIC)
@@ -283,6 +289,8 @@ Directly replaces curated detection rules by rolling up 30-day `metrics.resource
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect cloud permission enumeration and brute-force discovery by fusing 30-day resource_read_fail surges with HTTP API volume per user.
 // Statistical Model: 4-Stage Roll-Up Sector Fusion (metrics.resource_read_fail + metrics.http_queries_total, D^2 >= 12.25)
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (COMPOSITE-ONLY METRIC + ENTITY-KEYED METRIC)
@@ -413,6 +421,8 @@ Evaluates hourly cloud `RESOURCE_READ` and `USER_RESOURCE_ACCESS` discovery burs
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED EMPIRICAL BAYES GAMMA-POISSON SHRINKAGE PIPELINE
 // Goal: Detect custom-User-Agent cloud reconnaissance and permission brute-forcing on candidate identities from Query 2A (strictly gated by Query 2A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson-Gamma Bayesian Conjugate Updating
@@ -516,6 +526,8 @@ Rather than splitting secret and resource harvesting into two disconnected queri
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Unify cold-start secret/resource harvesting (<= 4 active days via Two-Part Hurdle) and mature baseline anomalies (>= 5 active days via 30-Day MAD + metrics.resource_read_success) in a single 4-stage pipeline.
 // Statistical Model: Option 1 Piecewise Two-Part Hurdle + 4-Stage Iglewicz-Hoaglin Modified Z-Score (MAD) & Classical 30d metrics.resource_read_success
 // ARCHITECTURE: 4-STAGE ALL-REGIME PIECEWISE HURDLE & ROBUST MODIFIED Z-SCORE (TRUE MEDIAN ABSOLUTE DEVIATION)
@@ -657,6 +669,8 @@ Catches both targeted snapshot/ACL sharing (including sharing with specific exte
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Isolate targeted cloud storage, bucket ACL, and snapshot sharing/exfiltration surges while suppressing scheduled fleet-wide backup waves via Dual-Baseline Delta-Z.
 // Target Telemetry: UDM_EVENTS (RESOURCE_READ, USER_RESOURCE_ACCESS, USER_RESOURCE_UPDATE_PERMISSIONS on Cloud Storage/S3/Snapshots)
 // Statistical Model: 3-Stage Dual-Baseline Population Normalization (Delta-Z = Z_Personal - max(0, Z_Fleet_Shift))
@@ -755,6 +769,8 @@ Catches low-and-slow multi-day cloud storage/database exfiltration (`rclone --bw
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect multi-day low-and-slow cloud storage or database exfiltration via Longitudinal CUSUM drift on 30-day outbound network bytes.
 // Statistical Model: 2-Stage Longitudinal CUSUM Behavioral Drift (k = 0.5 sigma slack, drift_days >= 2)
 // ARCHITECTURE: 2-STAGE LONGITUDINAL CUSUM BEHAVIORAL DRIFT PIPELINE
@@ -839,6 +855,8 @@ Evaluates every cloud service account or IAM role across all four 30-day CRUD me
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect cloud service accounts and IAM roles modifying, deleting, or accessing cloud resources out of their 30-day behavioral scope or from an anomalous caller IP.
 // Statistical Model: 2-Stage Dual-Branch 4-Family Cloud CRUD & Caller Origin IP Isolation
 // ARCHITECTURE: 2-STAGE DUAL-BRANCH CLOUD REPOSITORY SCOPE & ORIGIN OUTLIER PIPELINE
@@ -1024,6 +1042,8 @@ Evaluates hourly cloud resource and object deletion burstiness ($F = \sigma^2 / 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED POISSON FANO FACTOR BURST DISPERSION PIPELINE
 // Goal: Detect rapid cloud storage/database mass deletion & ransomware wiping bursts on candidate identities from Query 5A (strictly gated by Query 5A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson Index of Dispersion (Fano Factor F = sigma^2 / mu >= 4.0)
@@ -1123,6 +1143,8 @@ Directly implements the UEBA analytic requested in `` and replaces curated detec
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Fulfill and replace curated detection rules by detecting rare Serverless (Cloud Run/Functions/Lambda) and VM resource/key creations (including k >= 1 on zero-prior identities) via Leave-One-Out Poisson Rarity.
 // Target Telemetry: UDM_EVENTS (RESOURCE_CREATION and USER_RESOURCE_CREATION)
 // Statistical Model: Leave-One-Out Discrete Poisson Arrival Score (Poisson Z^2 = (k - λ)^2 / λ >= 9.0)
@@ -1208,6 +1230,8 @@ Replaces curated detection rules by rolling up 30-day `metrics.resource_creation
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Replace curated detection rules by fusing 30-day cloud resource creation surges with outbound network byte anomalies.
 // Statistical Model: 4-Stage Roll-Up Sector Fusion (metrics.resource_creation_total + metrics.network_bytes_outbound, D^2 >= 12.25)
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (COMPOSITE-ONLY METRIC + ENTITY-KEYED METRIC)
@@ -1347,6 +1371,8 @@ Removes the `kube-system` and `/\/gke\-/` prefix coverage considerations by rank
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect rogue Kubernetes pod deployments, RBAC bindings, and masquerading workloads across all namespaces (GKE, EKS, AKS) via Zipfian Fleet Rarity.
 // Target Telemetry: UDM_EVENTS (Kubernetes pod, workload, RBAC, and serviceaccount token creation events)
 // Statistical Model: Zipf-Mandelbrot Heavy-Tail Frequency Distribution & Inverse Document Frequency (IDF) Surprisal
@@ -1442,6 +1468,8 @@ Consolidates the 55 native cloud provider detector sub-packs (`cdir-scc-*`, `aws
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Consolidate native cloud/container alerts (GCP SCC, AWS GuardDuty, Azure Defender, EDR) with 30-day outbound network byte surges on the same node/host.
 // Statistical Model: 4-Stage Roll-Up Sector Fusion (metrics.alert_event_name_count + metrics.network_bytes_outbound, D^2 >= 12.25)
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (COMPOSITE-ONLY METRIC + ENTITY-KEYED METRIC)
@@ -1576,6 +1604,8 @@ Upgrades curated detection rules by simultaneously scoring every user across the
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect post-compromise cloud identity and Google Workspace account takeover across Auth, Download, and Admin/Change sectors via a 3-Metric Multilevel Triad.
 // Statistical Model: Multilevel Triad Z-Scores (Personal + Fleet) & Composite Distance (D_vs_fleet^2 >= 12.25)
 // ARCHITECTURE: 3-METRIC MULTILEVEL PART-OF-THE-WHOLE TRIAD DAG
@@ -1694,6 +1724,8 @@ Evaluates hourly cloud `USER_LOGIN` failure-rate spikes via **Beta-Binomial Empi
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED BETA-BINOMIAL EMPIRICAL BAYES AUTH FAILURE RATE PIPELINE
 // Goal: Detect distributed password spraying and MFA fatigue against candidate cloud identities from Query 8A (strictly gated by Query 8A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Beta-Binomial Empirical Bayes Shrinkage
@@ -1801,6 +1833,8 @@ Removes the `CNAME`/`SRV` restriction and `>= 50 in 5m` rate cliff by measuring 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect record-agnostic DNS tunneling and Base32/Base64/Hex-encoded subdomain exfiltration across all DNS record types (TXT, AAAA, A, CNAME, SRV, NULL).
 // Target Telemetry: UDM_EVENTS (NETWORK_DNS across Cloud DNS, Route53, Azure DNS, VPC DNS)
 // Statistical Model: Multi-Class Character Distribution Shannon Entropy (H(X) = -sum(p_i * log2(p_i)))
@@ -1899,6 +1933,8 @@ Detects newly spun-up or ephemeral attacker-provisioned cloud VMs/containers (`a
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Isolate infant cloud VMs and container nodes (first seen <= 7 days ago in DERIVED_CONTEXT) exhibiting immediate anomalous outbound network egress.
 // Statistical Model: Hybrid 30-Day Host Network Egress Z-Score (metrics.network_bytes_outbound) + DERIVED_CONTEXT Infant Asset Multiplier (2.5x)
 // ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT ASSET AGE PIPELINE
@@ -2002,6 +2038,8 @@ Individual behavioral queries in Scenarios 1–9 frequently fire inside ambiguou
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 9 Cloud Threats scenarios (1 through 9B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
@@ -2101,3 +2139,19 @@ condition:
 order:
   $unified_threat_score desc
 ```
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

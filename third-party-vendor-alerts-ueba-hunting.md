@@ -1,5 +1,7 @@
 # Cross-Vendor Alert Normalization & Behavioral Triage with Multi-Stage Analytics in Google SecOps
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 ## 1. Architectural Overview: How Multi-Stage UEBA Complements Curated Detections
 
 The **Third-Party Vendor Alerts** curated suite provides broad multi-vendor alert normalization across 40+ endpoint (EDR/XDR), identity protection (IDP), email threat prevention, SASE/web proxy, DLP, cloud security, and OT/mobile security integrations.
@@ -37,6 +39,8 @@ Corroborates vendor endpoint alerts (and closes the polymorphic hash gap in `goo
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Corroborate endpoint vendor alerts by detecting execution of organizationally rare binaries (10-day rolling_max <= 3 hosts) with anomalous 30-day per-host execution volume.
 // Statistical Model: Hybrid 30-Day Composite Metric Z-Score (metrics.file_executions_total) + DERIVED_CONTEXT 10-Day File Prevalence Multiplier
 // ARCHITECTURE: 2-STAGE HYBRID METRIC + DERIVED_CONTEXT FILE PREVALENCE PIPELINE
@@ -118,6 +122,8 @@ Evaluates hourly multi-vendor EDR alert velocity via **Poisson-Gamma Bayesian Co
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED EMPIRICAL BAYES GAMMA-POISSON SHRINKAGE PIPELINE
 // Goal: Detect multi-vendor EDR alert bursts on candidate endpoints from Query 1A (strictly gated by Query 1A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson-Gamma Bayesian Conjugate Updating
@@ -216,6 +222,8 @@ Corroborates upstream phishing (`proofpoint-tap`, `trellix-etp`, `trellix-ex`) a
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Corroborate IDP and email phishing alerts by detecting post-compromise authentication, file download hoarding, and change surges across the Workspace/Identity Triad.
 // Statistical Model: 3-Metric Multilevel Part-of-the-Whole Triad (Personal + Fleet Z-Scores, D_vs_fleet^2 >= 12.25)
 // ARCHITECTURE: 3-METRIC MULTILEVEL PART-OF-THE-WHOLE TRIAD DAG
@@ -334,6 +342,8 @@ Evaluates hourly identity/SSO authentication failure-rate anomalies via **Beta-B
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED BETA-BINOMIAL EMPIRICAL BAYES AUTH FAILURE RATE PIPELINE
 // Goal: Detect credential stuffing and SSO brute-force failure-rate surges on candidate users from Query 2A (strictly gated by Query 2A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Beta-Binomial Empirical Bayes Shrinkage
@@ -441,6 +451,8 @@ Closes the unlisted-domain coverage considerations in `google-threat-intelligenc
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect endpoints communicating with rare external domains (10-day rolling_max <= 3 hosts) alongside a 30-day HTTP query anomaly, catching unlisted C2 domains missed by static IOC feeds and web proxy signatures.
 // Statistical Model: Hybrid 30-Day Behavioral Z-Score (metrics.http_queries_total) + DERIVED_CONTEXT 10-Day Domain Prevalence Multiplier
 // ARCHITECTURE: 2-STAGE HYBRID METRIC + DERIVED_CONTEXT DOMAIN PREVALENCE PIPELINE
@@ -517,6 +529,8 @@ Evaluates hourly outbound proxy/firewall callback inter-arrival pacing ($\text{C
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED INTER-ARRIVAL JITTER COEFFICIENT OF VARIATION PIPELINE
 // Goal: Detect automated C2 callback pacing (CV <= 0.25) across proxy and firewall telemetry on candidate hosts from Query 3A (strictly gated by Query 3A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Coefficient of Variation (CV = sigma / mu <= 0.25)
@@ -620,6 +634,8 @@ Deduplicates unwindowed `WIZ_IO` events and scores daily alert/transfer volume a
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect anomalous daily surges in DLP, Cloud (Wiz), Mobile, and OT vendor telemetry per entity using robust Median Absolute Deviation (MAD) scaling.
 // Target Telemetry: UDM_EVENTS (DIGITALGUARDIAN_EDR, WIZ_IO, CLAROTY_CTD, CLAROTY_XDOME, FORESCOUT_EYEINSPECT, NOZOMI_GUARDIAN)
 // Statistical Model: 4-Stage Non-Parametric Median Absolute Deviation / Iglewicz-Hoaglin Modified Z-Score (M_Z > 3.5)
@@ -718,6 +734,8 @@ Corroborates DLP (`digital-guardian`), Cloud (`wiz`), and OT (`claroty-*`, `fore
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect multi-day low-and-slow outbound data exfiltration across endpoints, cloud workloads, and OT assets via Longitudinal CUSUM drift on 30-day outbound network bytes.
 // Statistical Model: 2-Stage Longitudinal CUSUM Behavioral Drift (k = 0.5 sigma slack, cusum_drift_score >= 3.0, drift_days >= 2)
 // ARCHITECTURE: 2-STAGE LONGITUDINAL CUSUM BEHAVIORAL DRIFT PIPELINE
@@ -810,6 +828,8 @@ Individual behavioral queries in Scenarios 1–4 frequently fire inside ambiguou
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 4 Third-Party Vendor Alerts scenarios (1 through 4B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
@@ -909,3 +929,19 @@ condition:
 order:
   $unified_threat_score desc
 ```
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

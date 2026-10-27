@@ -1,5 +1,7 @@
 # Beyond Static Rules: Hunting PHP2Shell and PHP UAF Exploitation with Multi-Stage Behavioral Analytics in Google SecOps
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 When critical remote code execution vulnerabilities emerge in foundational web infrastructure—such as the **PHP2Shell** disclosures ([CVE-2026-109618](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2026-109618) and [CVE-2026-109619](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2026-109619)) and related PHP OPcache and session Use-After-Free (UAF) primitives reported by [Wiz Research](https://www.wiz.io/blog/php2shell-php-rce)—detection engineers immediately write point-in-time SIEM rules.
 
 Point-in-time YARA-L 2.0 rules are essential tripwires for known exploit mechanics. However, static rules face an unavoidable trade-off between **evasion resilience** and **alert fatigue**:
@@ -95,6 +97,8 @@ rule linux_php_fatal_backtrace_uaf_execution {
 ##### Query 1A: Two-Part Hurdle on PHP Configuration Modifications
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect dormant web servers suddenly modifying PHP configuration files (.htaccess, .user.ini, php.ini).
 // Statistical Model: Two-Part Hurdle Outlier Model for Zero-Inflated Telemetry (two_part_hurdle_2stage.yl2)
 // ============================================================================
@@ -178,6 +182,8 @@ order:
 ##### Query 1B: Zipfian Process Rarity on Single-Worker (`-X`) & Backtrace Launches
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect rare single-worker debug (-X) or fatal_error_backtraces executions in the enterprise Zipfian tail.
 // Statistical Model: Power-Law / Zipfian Inverse Rank Frequency Rarity (zipfian_process_rarity_2stage.yl2)
 // ============================================================================
@@ -315,6 +321,8 @@ We solve this using a **Two-Phase Chained Hunt** (no external Data Table require
 ##### Query 2A: Phase 1 Raw Ingress Bailout-to-Carrier Sequence
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect two-stage OPcache HTTP 500 bailout followed by HTTP 200 carrier POST over 5m.
 // Statistical Model: Two-Stage Causal Temporal Sequence (secops-statistical-hunter Bridge Extractor)
 // ============================================================================
@@ -395,6 +403,8 @@ order:
 ##### Query 2B: Phase 2 30-Day Outbound Network Egress Corroboration (Direct IP Scoping)
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 2-STAGE PARAMETRIC STANDARD Z-SCORE OUTLIER PIPELINE
 // Goal: Score 30-day outbound network byte departures on candidate web server IPs surfaced by Phase 1.
 // Template: secops-risk-metrics-multistage/templates/pipelines/standard_z_score_2stage.yl2
@@ -525,6 +535,8 @@ rule linux_php_opcache_aslr_disable_and_file_read {
 ##### Query 3A: Leave-One-Out Discrete Poisson Rarity on ASLR Disablement (`setarch` / `seccomp`)
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect statistically improbable surges in ASLR disablement (setarch -R / seccomp=unconfined).
 // Statistical Model: Discrete Poisson Arrival Score (poisson_rare_surge_2stage.yl2)
 // ============================================================================
@@ -604,6 +616,8 @@ order:
 ##### Query 3B: Two-Part Hurdle on Web Worker Sensitive File & Procfs Memory Reads
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect web worker processes reading /etc/shadow, /etc/sudoers, or /proc/(self|<PID>)/(maps|mem|environ).
 // Statistical Model: Two-Part Hurdle Outlier Model for Zero-Inflated Telemetry (two_part_hurdle_2stage.yl2)
 // ============================================================================
@@ -732,6 +746,8 @@ rule network_php_session_upload_progress_uaf_burst {
 ##### Query 4A: Poisson Burst Clustering (Fano Factor) on Large PHP POST Uploads
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect high-concurrency PHP session upload seeding bursts via Poisson Fano Factor dispersion.
 // Statistical Model: Poisson Dispersion via Fano Factor (poisson_burst_clustering_2stage.yl2)
 // ============================================================================
@@ -809,6 +825,8 @@ order:
 ##### Query 4B: 30-Day HTTP Failure Surge & Ratio (`metrics.http_queries_fail`)
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 2-STAGE HTTP ERROR RATIO & RECONNAISSANCE SURGE PIPELINE
 // Goal: Hunt for web servers with anomalous 30-day HTTP error Z-scores and failure ratios.
 // Template: secops-risk-metrics-multistage/templates/pipelines/http_error_ratio_surge_2stage.yl2
@@ -937,6 +955,8 @@ rule network_php_stale_session_id_memory_disclosure {
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect anomalous server heap memory bleed in HTTP 500 response sizes via Median Absolute Deviation (MAD).
 // Statistical Model: Modified Z-Score (Iglewicz & Hoaglin, 1993) (mad_modified_z_4stage.yl2)
 // ============================================================================
@@ -1059,6 +1079,8 @@ rule linux_php_session_moddata_uaf_debugger_trace {
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect rare parent-to-debugger process execution transitions (gdb, lldb, strace, ltrace, gcore).
 // Statistical Model: Markov 2-Gram Transition Probability & Information Surprisal (markov_2gram_transition_rarity_2stage.yl2)
 // ============================================================================
@@ -1180,6 +1202,8 @@ rule linux_php_worker_crash_after_session_or_http_oom {
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect dormant web servers suddenly triggering Linux crash dump handlers for PHP/Apache workers.
 // Statistical Model: Two-Part Hurdle Outlier Model for Zero-Inflated Telemetry (two_part_hurdle_2stage.yl2)
 // ============================================================================
@@ -1300,6 +1324,8 @@ rule linux_php2shell_web_worker_rce {
 ##### Query 8A: Markov 2-Gram Lineage Surprisal from Web Worker Parents
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect rare parent-child process transitions spawned by Apache/PHP web workers via Markov 2-Gram Rarity.
 // Statistical Model: Markov 2-Gram Transition Probability & Information Surprisal (markov_2gram_transition_rarity_2stage.yl2)
 // ============================================================================
@@ -1382,6 +1408,8 @@ order:
 ##### Query 8B: 4-Stage Roll-Up Sector Fusion (`EXECUTION_TO_EXFILTRATION`, 30-Day UEBA)
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (COMPOSITE-ONLY METRIC + ENTITY-KEYED METRIC)
 // Goal: Fuse 30-day process execution anomalies (file_executions_total) with outbound network egress (network_bytes_outbound).
 // ADVISORY: Sector A (file_executions_total) is a composite-only roll-up sector;
@@ -1550,6 +1578,8 @@ rule network_php_oom_uaf_oracle_probing {
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Hunt for interleaved HTTP 500 OOM bailouts and HTTP 200 pointer-oracle probes via Beta-Binomial Regularization.
 // Statistical Model: Beta-Binomial Bayesian Updating & Small-Sample Shrinkage (beta_binomial_failure_4stage.yl2)
 // ============================================================================
@@ -1737,3 +1767,19 @@ Security telemetry is messy: some servers are dead quiet for months, some are no
   $$\hat{p}_{\text{fail}} = \frac{\text{Observed Fails} + 1.0}{\text{Observed Total} + 10.0}$$
   * **1 fluke error out of 1 request**: Raw rate is $100\%$, but the regularized rate is $(1 + 1) / (1 + 10) = \mathbf{18.1\%}$ (shrunk back toward normal).
   * **10 OOM bailouts out of 25 requests (Oracle Probing)**: Regularized rate is $(10 + 1) / (25 + 10) = \mathbf{31.4\% \ge 15\%}$ with $\ge 15$ total trials, surfacing sustained oracle probing while eliminating small-sample noise.
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

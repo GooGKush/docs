@@ -1,5 +1,7 @@
 # Extending Applied Threat Intelligence (ATI) Indicator Prioritization with Multi-Stage Behavioral Analytics in Google SecOps
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 ## 1. Architectural Overview: How Multi-Stage UEBA Complements Curated Detections
 
 The **Applied Threat Intelligence (ATI) Curated Prioritization** suite enriches host, network, and authentication telemetry with Google Threat Intelligence (GTI) and Mandiant breach prioritization—surfacing matches against high-confidence active-breach and high-priority indicators of compromise (IoCs).
@@ -37,6 +39,8 @@ Replaces static `GTI_IOC` hash matching with a 2-stage hybrid pipeline that scor
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect execution of rare or novel binaries (10-day DERIVED_CONTEXT rolling_max <= 3 hosts) with anomalous per-host execution frequency compared to 30-day behavioral baselines.
 // Statistical Model: 2-Stage Hybrid 30-Day Composite Metric Z-Score (metrics.file_executions_total) + DERIVED_CONTEXT 10-Day Binary Prevalence
 // ARCHITECTURE: 2-STAGE HYBRID METRIC + DERIVED_CONTEXT FILE PREVALENCE PIPELINE
@@ -118,6 +122,8 @@ Catches polymorphic droppers, custom C2 implants, and living-off-the-land admin 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect polymorphic binaries and rare administrative utilities executing in the enterprise Zipfian long tail (<= 2 hosts) before GTI indexing.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH)
 // Statistical Model: Power-Law / Zipfian Inverse Host Frequency Surprisal (zipf_rarity_score >= 4.0)
@@ -212,6 +218,8 @@ Eliminates the 7-day GTI soaking coverage considerations and wall-clock `timesta
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect anomalous host HTTP volume targeting newly registered (<= 30d at event time) or expired WHOIS domains before GTI IOC indexing.
 // Statistical Model: 2-Stage Hybrid 30-Day Behavioral Z-Score (metrics.http_queries_total) + GLOBAL_CONTEXT WHOIS Domain Lifecycle Multiplier
 // ARCHITECTURE: 2-STAGE HYBRID METRIC + GLOBAL_CONTEXT WHOIS DOMAIN LIFECYCLE PIPELINE
@@ -295,6 +303,8 @@ Evaluates hourly outbound network callback inter-arrival pacing ($\text{CV} = \s
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED INTER-ARRIVAL JITTER COEFFICIENT OF VARIATION PIPELINE
 // Goal: Detect automated C2 callback cadence (CV <= 0.25) on candidate hosts from Query 2A (strictly gated by Query 2A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Coefficient of Variation (CV = sigma / mu <= 0.25)
@@ -398,6 +408,8 @@ Directly fixes the `$blocked = 0` self-suppression constraint in curated detecti
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect inbound brute-force / credential-stuffing attacks that culminate in a successful login (fixing the ATI $blocked = 0 suppression constraint).
 // Statistical Model: 3-Stage Dual-Sector Euclidean Risk Fusion (metrics.auth_attempts_fail + metrics.auth_attempts_success, D^2 >= 12.25)
 // ARCHITECTURE: 3-STAGE SAME-ENTITY MULTI-SECTOR TELEMETRY FUSION
@@ -501,6 +513,8 @@ Evaluates hourly authentication failure-rate anomalies via **Beta-Binomial Empir
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED BETA-BINOMIAL EMPIRICAL BAYES AUTH FAILURE RATE PIPELINE
 // Goal: Detect credential stuffing and brute-force failure-rate surges on candidate identities from Query 3A (strictly gated by Query 3A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Beta-Binomial Empirical Bayes Shrinkage
@@ -608,6 +622,8 @@ Replaces the brittle upstream `$ati` `GTI_IOC` anchor in `c_ati_path_domain_c2_t
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect C2 communication and HTTP exfiltration surges to organizationally rare domains (10-day DERIVED_CONTEXT rolling_max <= 3 hosts) without requiring a prior GTI IOC match.
 // Statistical Model: 2-Stage Hybrid 30-Day Behavioral Z-Score (metrics.http_queries_total) + DERIVED_CONTEXT 10-Day Domain Prevalence
 // ARCHITECTURE: 2-STAGE HYBRID METRIC + DERIVED_CONTEXT DOMAIN PREVALENCE PIPELINE
@@ -684,6 +700,8 @@ Evaluates hourly outbound network connection surges against each host's hourly b
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED PERSONAL & UPSTREAM DELTA-Z PIPELINE
 // Goal: Detect localized hourly outbound connection surges on candidate hosts from Query 4A (strictly gated by Query 4A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Hourly Standardized Personal Z-Score Fusion
@@ -786,6 +804,8 @@ Individual behavioral queries in Scenarios 1–4 frequently fire inside ambiguou
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 4 Indicator Prioritization scenarios (1 through 4B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
@@ -885,3 +905,19 @@ condition:
 order:
   $unified_threat_score desc
 ```
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

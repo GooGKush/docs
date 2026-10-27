@@ -1,5 +1,7 @@
 # Contextualizing Vendor Alerts with Multi-Stage Behavioral Analytics in Google SecOps
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 ## 1. Architectural Overview: How Multi-Stage UEBA Complements Curated Detections
 
 The **Vendor Alerts** curated rule pack ingests and normalizes detections from integrated endpoint, network, firewall, cloud (CNAPP), email, and OT/IoT security vendors—allowing Google SecOps to surface third-party alerts within Chronicle.
@@ -37,6 +39,8 @@ Compensates for static EDR severity passthroughs and unscored alerts by evaluati
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Fuse 30-day per-rule endpoint alert anomalies with 30-day outbound network byte surges on the same host to isolate active post-alert exfiltration and C2.
 // Statistical Model: 4-Stage Roll-Up Sector Fusion (metrics.alert_event_name_count + metrics.network_bytes_outbound, D^2 >= 12.25)
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (COMPOSITE-ONLY METRIC + ENTITY-KEYED METRIC)
@@ -162,6 +166,8 @@ Compensates for unscored `trellix-hx` shards (`$risk_score = 0`), `sentinelone` 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Isolate rare third-party EDR alert signatures firing in the asymptotic fleet tail (<= 2 hosts) with high local repetition intensity across CrowdStrike, Defender, SentinelOne, Trellix HX, and TrendMicro Vision One.
 // Target Telemetry: UDM_EVENTS (CS_DETECTS, CS_ALERTS, MICROSOFT_GRAPH_ALERT, SENTINELONE_ALERTS, TRELLIX_HX_ALERTS, TRENDMICRO_VISION_ONE)
 // Statistical Model: Power-Law / Zipfian Inverse Host Frequency Rarity (zipf_rarity_score >= 4.0, adopter_hosts <= 2)
@@ -278,6 +284,8 @@ Corroborates NDR and firewall alerts by fusing two independent 30-day network be
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Fuse 30-day failed HTTP request surges with 30-day total DNS query volume anomalies on the same host to corroborate NDR and firewall alerts.
 // Statistical Model: 3-Stage Dual-Sector Threat Fusion (metrics.http_queries_fail + metrics.dns_queries_total, D^2 >= 12.25)
 // ARCHITECTURE: 3-STAGE DUAL-SECTOR THREAT FUSION (GENERIC: ANY TWO ENTITY-KEYED METRICS)
@@ -375,6 +383,8 @@ Evaluates hourly NDR and firewall alert surges strictly on candidate hosts surfa
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED PERSONAL & UPSTREAM DELTA-Z PIPELINE
 // Goal: Detect localized NDR and firewall alert surges on candidate hosts from Query 2A (strictly gated by Query 2A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Hourly Standardized Personal Z-Score Fusion
@@ -468,6 +478,8 @@ Fuses 30-day host outbound network byte baselines (`metrics.network_bytes_outbou
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Isolate newly discovered or rogue infant assets (first seen <= 7 days ago in DERIVED_CONTEXT) exhibiting anomalous outbound network byte volume.
 // Statistical Model: 2-Stage Hybrid 30-Day Outbound Bytes Z-Score + DERIVED_CONTEXT Infant Asset Age (z_score >= 3.0, asset_age_days <= 7.0)
 // ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT ASSET AGE PIPELINE
@@ -553,6 +565,8 @@ Evaluates hourly OT/IoT vendor alert burstiness ($F = \sigma^2 / \mu \ge 4.0$) s
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED POISSON FANO FACTOR BURST DISPERSION PIPELINE
 // Goal: Detect concentrated OT/IoT reconnaissance and PLC/asset alert bursts on candidate assets from Query 3A (strictly gated by Query 3A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson Index of Dispersion (Fano Factor F = sigma^2 / mu >= 4.0)
@@ -648,6 +662,8 @@ Compensates for `wiz-threats` `$threat_id` collapsing, `trellix-helix` unaggrega
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect dormant or low-noise cloud and corporate accounts that suddenly accumulate Wiz, Trellix ETP/EX, or Trellix Helix security alerts.
 // Target Telemetry: UDM_EVENTS (WIZ_IO, FIREEYE_ETP, FIREEYE_EMPS, Trellix XDR)
 // Statistical Model: Two-Part Hurdle Outlier Model for Zero-Inflated Telemetry (hurdle_threat_score >= 3.0)
@@ -749,6 +765,8 @@ Correlates cloud and email security alerts with downstream identity compromise b
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect post-phishing and cloud-credential compromise account takeover by fusing 30-day authentication failure and authentication success anomalies per user.
 // Statistical Model: 3-Stage Dual-Sector Threat Fusion (metrics.auth_attempts_fail + metrics.auth_attempts_success, D^2 >= 12.25)
 // ARCHITECTURE: 3-STAGE DUAL-SECTOR THREAT FUSION (GENERIC: ANY TWO ENTITY-KEYED METRICS)
@@ -865,6 +883,8 @@ Individual behavioral queries in Scenarios 1–4 frequently fire inside ambiguou
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 4 Vendor Alerts scenarios (1 through 4B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
@@ -964,3 +984,19 @@ condition:
 order:
   $unified_threat_score desc
 ```
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

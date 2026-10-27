@@ -1,5 +1,7 @@
 # Signal Processing & Behavioral Baselines: Hunting "Shadow AI" and Autonomous Agentic Behavior with Multi-Stage UEBA in Google SecOps
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 As enterprise adoption of Large Language Models (LLMs), Model Context Protocol (MCP) tool servers, headless coding assistants (`claude`, `codex`, `aider`, `cursor`, `goose`), and local inference runtimes (`ollama`, `vllm`, `litellm`, `llama-server`) accelerates, security operations teams face a structural visibility gap: **Shadow AI and Autonomous Agentic Workflows**.
 
 Traditional point-in-time SIEM rules attempt to detect Shadow AI using static indicators—hardcoded domain lists (`api.openai.com`, `api.anthropic.com`), default HTTP User-Agent strings (`openai-python`, `anthropic-sdk`), or fixed binary names. In practice, these static tripwires fail for three reasons:
@@ -113,6 +115,8 @@ When a human engineer attaches an autonomous agent to their corporate identity�
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE HOLISTIC HTTP, OUTBOUND EGRESS & CIRCADIAN VON MISES FUSION
 // Goal: Detect human and cold-start identities shifting into high-velocity or off-hours Shadow AI agent loops across Web/API requests and outbound byte volume.
 // Statistical Model: Option 1 Piecewise Cold-Start Hurdle + Multi-Sector Euclidean Threat Norm + Circadian von Mises Distance
@@ -223,6 +227,8 @@ In the frequency and time domains, an autonomous agent's ReAct loop produces two
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 2-STAGE MACD DUAL-SPINE MOMENTUM VELOCITY PIPELINE
 // Goal: Isolate sudden intraday/daily velocity acceleration in HTTP/API requests when an autonomous agent loop starts on cold-start or mature hosts.
 // Statistical Model: Option 1 Piecewise Cold-Start Hurdle + MACD Momentum Velocity Divergence (macd_momentum_velocity_2stage.yl2)
@@ -306,6 +312,8 @@ order:
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED REACT INTER-ARRIVAL JITTER & FLEET PREVALENCE PIPELINE
 // Goal: Evaluate quasi-periodic ReAct inference callbacks (CV <= 0.35) strictly on candidate hosts surfaced by Query 2A via UDM Loopback.
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Coefficient of Variation (CV = sigma / mu)
@@ -408,6 +416,8 @@ On endpoints and developer workstations, Shadow AI agents operate by running loc
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (FILE EXECUTIONS + OUTBOUND BYTES)
 // Goal: Detect endpoints launching novel or surging binaries (Shadow AI CLIs/runtimes) coupled with 30-day or cold-start outbound byte anomalies.
 // Statistical Model: Option 1 Piecewise Cold-Start Hurdle + 4-Stage Composite Roll-Up Fusion (rollup_sector_fusion_4stage.yl2)
@@ -537,6 +547,8 @@ order:
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 2-STAGE MARKOV 2-GRAM PROCESS LINEAGE SURPRISAL PIPELINE
 // Goal: Detect agentic runtimes and IDEs (node, python, cursor, claude, ollama) spawning rare shell or cloud recon child processes.
 // Statistical Model: Markov 2-Gram Transition Probability & Information Surprisal (markov_2gram_transition_rarity_2stage.yl2)
@@ -629,6 +641,8 @@ When an AI agent is connected to a Cloud environment (via an MCP server, LangCha
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 2-STAGE DUAL-BRANCH CLOUD REPOSITORY SCOPE & ORIGIN OUTLIER PIPELINE
 // Goal: Detect service accounts or cloud identities hijacked by Shadow AI agents accessing novel cloud resources or calling from unseen IPs.
 // Statistical Model: Local-Baseline Isolation across 4 Cloud CRUD Families (cloud_repository_scope_dual_branch.yl2)
@@ -801,6 +815,8 @@ order:
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED POISSON DISPERSION / FANO FACTOR CLUSTERING PIPELINE
 // Goal: Detect agentic trial-and-error cloud reconnaissance (Fano F >= 4.0) strictly on candidate identities surfaced by Query 4A via UDM Loopback.
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson Dispersion via Fano Factor (F = sigma^2 / mu)
@@ -904,6 +920,8 @@ By making `stage2_fleet_prevalence` a derived roll-up over `stage1_personal_surg
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE HTTP USER-AGENT FLEET PREVALENCE & PRODUCER-CONSUMER BYTE INVERSION PIPELINE
 // Goal: Surface isolated Shadow AI SDKs and programmatic User-Agents on hosts that simultaneously exhibit outbound prompt-stuffing byte asymmetry.
 // Statistical Model: Option 1 Piecewise Cold-Start Hurdle + Fleet Prevalence Normalization + Producer-Consumer Byte Ratio
@@ -1031,6 +1049,8 @@ Shadow AI pipelines frequently connect to Google Workspace (Drive, Docs, Gmail) 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE WORKSPACE ACTIVITY TRIAD & LONGITUDINAL EGRESS CUSUM FUSION
 // Goal: Detect Shadow AI connectors or browser agents bulk-harvesting Google Workspace documents alongside persistent outbound network byte drift.
 // Statistical Model: Workspace Activity Triad Z-Scores + Option 1 Piecewise Page's CUSUM Drift
@@ -1155,6 +1175,8 @@ In enterprise cloud environments, the most dangerous Shadow AI pattern is **Serv
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UNSANCTIONED SERVICE ACCOUNT CLOUD CRUD FAILURE, PROVISIONING & EGRESS FUSION
 // Goal: Detect service accounts co-opted by Shadow AI agents exhibiting epistemic CRUD failures, autonomous resource creation across novel services, and outbound network egress.
 // Statistical Model: Option 1 Piecewise Cold-Start Hurdle + 4-Stage Cloud CRUD Failure & Network Egress Roll-Up Fusion
@@ -1359,6 +1381,8 @@ Even when SSL/TLS inspection is bypassed, custom reverse proxies are used, or HT
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE DNS ACTIVITY TRIAD & RARE AI GATEWAY DOMAIN DISCOVERY (DERIVED_CONTEXT)
 // Goal: Surface endpoints with 30-day DNS query or NXDOMAIN surges that resolve enterprise-rare domains (<= 3 hosts in 10d Entity Graph).
 // Statistical Model: Option 1 Piecewise Cold-Start Hurdle + DNS Sibling Triad + Entity Graph Domain Prevalence (rare_destination_ecg_3stage.yl2)
@@ -1469,6 +1493,8 @@ order:
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 2-STAGE DNS SUBDOMAIN SHANNON ENTROPY & OUTBOUND BYTE PROXY PIPELINE
 // Goal: Detect Shadow AI CLI tools and covert tunnels encoding prompt or telemetry payloads into high-entropy DNS query names.
 // Statistical Model: Shannon Character-Class Information Density & Length Ratio (shannon_entropy_character_2stage.yl2)
@@ -1551,6 +1577,8 @@ Two additional 30-day `metrics.*` families in the SecOps catalog capture the **i
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 2-STAGE EXTERNAL CLOUD ASN & OAUTH APPLICATION CREDENTIAL MULTIPLEXING PIPELINE
 // Goal: Detect corporate identities authenticating from unseen external cloud/AI provider ASNs or surging against novel target applications.
 // Statistical Model: Option 1 Piecewise Cold-Start Hurdle + Dual-Dimension Auth Baseline (PRINCIPAL_NETWORK_ORGANIZATION_NAME & TARGET_APPLICATION)
@@ -1662,6 +1690,8 @@ order:
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (EDR ALERT VELOCITY + NETWORK EGRESS)
 // Goal: Detect endpoints where local Shadow AI agents trigger clusters of low-severity EDR/DLP alerts alongside anomalous outbound network egress.
 // Statistical Model: Option 1 Piecewise Cold-Start Hurdle + 4-Stage Roll-Up Euclidean Sector Fusion (rollup_sector_fusion_4stage.yl2)
@@ -1798,6 +1828,8 @@ Unlike the 360° Entity Health Check (which must query 6 separate `metrics.*` fa
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 9 Shadow AI scenarios (1 through 9B) via UDM Loopback regex token union while simultaneously joining raw endpoint, network, and cloud telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
@@ -1938,3 +1970,19 @@ curl -X POST "http://localhost:8080/api/v1/playbooks/run" \
   }
 }
 ```
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

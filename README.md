@@ -35,3 +35,19 @@ Cyclical 3-wave multi-stage UEBA and statistical hunting playbooks supplementing
 * [`GooGKush/secops-statistical-hunter`](https://github.com/GooGKush/secops-statistical-hunter) — Multi-stage statistical outlier hunting, Bayesian updating, and Entity Context Graph enrichment over raw UDM telemetry.
 * [`GooGKush/secops-risk-metrics-multistage`](https://github.com/GooGKush/secops-risk-metrics-multistage) — 30-day behavioral baseline (`metrics.*`) UEBA threat hunting, peer cohort comparisons, 360° entity risk radar, and multi-sector threat fusion.
 * [`GooGKush/agentic-ueba`](https://github.com/GooGKush/agentic-ueba) — Agentic UEBA orchestration and harness utilities.
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

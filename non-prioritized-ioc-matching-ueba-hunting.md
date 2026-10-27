@@ -1,5 +1,7 @@
 # Contextualizing Non-Prioritized Domain, File & IP IOC Matching with Multi-Stage Behavioral Analytics in Google SecOps
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 ## 1. Architectural Overview: How Multi-Stage UEBA Complements Curated Detections
 
 The **Non-Prioritized IOC Matching** curated detection pack provides broad indicator matching across domain, file hash, and IP address feeds where indicators may carry lower static confidence or broader infrastructure overlap (such as shared hosting, CDNs, or aged threat feeds).
@@ -36,6 +38,8 @@ Replaces flat, unprioritized domain IOC matching with a 2-stage hybrid pipeline 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Suppress ubiquitous CDN/sinkhole domain false positives while detecting rare external domain contacts (10-day rolling_max <= 3 hosts) accompanied by a 30-day HTTP volume surge.
 // Statistical Model: 2-Stage Hybrid 30-Day Behavioral Z-Score (metrics.http_queries_total) + DERIVED_CONTEXT 10-Day Domain Prevalence Multiplier
 // ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT DOMAIN PREVALENCE PIPELINE
@@ -135,6 +139,8 @@ Closes the zero-day DGA, DNS tunneling, and mixed-case evasion gap by computing 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect unindexed DGA domains, DNS tunneling payloads, and high-entropy C2 subdomains in NETWORK_DNS traffic across the fleet.
 // Target Telemetry: UDM_EVENTS (NETWORK_DNS: network.dns.questions.name)
 // Statistical Model: Multi-Class Character Distribution Shannon Entropy (H(X) = -sum(p_i * log2(p_i)) >= 3.8)
@@ -243,6 +249,8 @@ Eliminates dependence on static `GCTI Feed` hash lists and suppresses sanctioned
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect anomalous execution surges of rare binaries (10-day org prevalence rolling_max <= 3 hosts) while suppressing sanctioned fleet-wide RMM/admin tools.
 // Statistical Model: 2-Stage Hybrid 30-Day Behavioral Z-Score (metrics.file_executions_total) + DERIVED_CONTEXT 10-Day File Prevalence Multiplier
 // ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT FILE PREVALENCE PIPELINE
@@ -351,6 +359,8 @@ Detects rare or newly introduced RMM tools, cryptominers, and suspicious Linux/W
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect statistically improbable surges in rare RMM, cryptomining, or administrative binaries per host via Leave-One-Out Discrete Poisson Rarity.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH: target.process.file.full_path)
 // Statistical Model: Leave-One-Out Discrete Poisson Arrival Score (Z_Poisson^2 = (k - lambda)^2 / lambda >= 9.0)
@@ -448,6 +458,8 @@ Replaces static IP list matching with a 2-stage hybrid pipeline that scores ever
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect anomalous outbound network byte surges on newly provisioned or rogue infant assets (first_seen_time <= 7 days) regardless of static IP feed coverage.
 // Statistical Model: 2-Stage Hybrid 30-Day Behavioral Z-Score (metrics.network_bytes_outbound) + DERIVED_CONTEXT Infant Asset Age Multiplier
 // ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT ASSET AGE PIPELINE
@@ -533,6 +545,8 @@ Evaluates hourly outbound network connection bursts via **Poisson-Gamma Bayesian
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED EMPIRICAL BAYES GAMMA-POISSON SHRINKAGE PIPELINE
 // Goal: Detect hourly outbound network connection bursts on candidate endpoints from Query 3A (strictly gated by Query 3A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson-Gamma Bayesian Conjugate Updating
@@ -640,6 +654,8 @@ Individual behavioral queries in Scenarios 1–3 frequently fire inside ambiguou
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 3 Non-Prioritized IOC Matching scenarios (1 through 3B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
@@ -739,3 +755,19 @@ condition:
 order:
   $unified_threat_score desc
 ```
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

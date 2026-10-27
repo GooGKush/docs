@@ -1,5 +1,7 @@
 # Hunting Windows Endpoint Threats with Multi-Stage Behavioral Analytics in Google SecOps
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 ## 1. Architectural Overview: How Multi-Stage UEBA Complements Curated Detections
 
 The **Windows Threats** curated detection suite provides extensive signature and behavioral coverage for Windows endpoints—spanning PowerShell and script-block execution, Living-off-the-Land Binaries (LOLBins), credential dumping, lateral movement, defense evasion, and ransomware staging.
@@ -38,6 +40,8 @@ Replaces brittle Base64 substring regexes by computing **4-class character Shann
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect obfuscated PowerShell, Base64/XOR-encoded scripts, and high-entropy LOLBin command lines across Windows endpoints.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH on Windows script interpreters and LOLBins)
 // Statistical Model: Multi-Class Character Distribution Shannon Entropy (H(X) = -sum(p_i * log2(p_i)) >= 3.8)
@@ -138,6 +142,8 @@ Detects living-off-the-land execution chains where Windows system services (`svc
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect rare parent-to-child process transitions where Windows services, Office apps, or browsers spawn shells and LOLBins via Markov 2-Gram Surprisal.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH)
 // Statistical Model: Markov 2-Gram Transition Probability & Information Surprisal (I = -ln(P(Child | Parent)) >= 3.0)
@@ -240,6 +246,8 @@ Detects post-dump pass-the-hash, brute-force, and lateral authentication progres
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect post-credential-dump lateral authentication spraying and pass-the-hash progression on Windows hosts.
 // Statistical Model: 3-Stage Dual-Sector Euclidean Risk Fusion (D_sq = Z_fail_sq + Z_success_sq >= 12.25)
 // ARCHITECTURE: 3-STAGE SAME-ENTITY MULTI-SECTOR TELEMETRY FUSION (HOST-KEYED)
@@ -344,6 +352,8 @@ Evaluates hourly credential-access and discovery command bursts ($F = \sigma^2 /
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED POISSON FANO FACTOR BURST DISPERSION PIPELINE
 // Goal: Detect automated credential harvesting and post-exploitation discovery bursts on candidate Windows hosts from Query 2A (strictly gated by Query 2A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson Index of Dispersion (Fano Factor F = sigma^2 / mu >= 4.0)
@@ -440,6 +450,8 @@ Catches newly compiled backdoors, polymorphic RAT droppers, and trojanized binar
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect execution of rare or newly compiled Windows malware/RAT binaries (10-day org prevalence <= 3 hosts) with anomalous host execution frequency.
 // Statistical Model: Hybrid 30-Day Composite Metric Z-Score (metrics.file_executions_total) + DERIVED_CONTEXT 10-Day File Prevalence
 // ARCHITECTURE: 2-STAGE HYBRID METRIC + DERIVED_CONTEXT FILE PREVALENCE PIPELINE
@@ -521,6 +533,8 @@ Evaluates hourly outbound C2 callback inter-arrival pacing ($\text{CV} = \sigma 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED INTER-ARRIVAL JITTER COEFFICIENT OF VARIATION PIPELINE
 // Goal: Detect Cobalt Strike, Sliver, Brute Ratel, and RMM C2 beaconing (CV <= 0.25) on candidate Windows hosts from Query 3A (strictly gated by Query 3A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Coefficient of Variation (CV = sigma / mu <= 0.25)
@@ -626,6 +640,8 @@ Because both **Personal Leave-One-Out Discrete Poisson Rarity** (catching built-
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Unify fleet-rare persistence/cryptominer binaries (Zipfian tail <= 2 hosts) and personal Leave-One-Out Poisson rarity on Windows tampering tools (sc, schtasks, wevtutil, vssadmin, bcdedit) in a single 4-stage pipeline.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH)
 // Statistical Model: Option 1 Piecewise Leave-One-Out Discrete Poisson Rarity + Zipfian Inverse Host Frequency Rarity
@@ -741,6 +757,8 @@ Detects ransomware file encryption, mass archive staging, and destructive wipers
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect ransomware mass file encryption, archive staging, and destructive wiper activity on Windows hosts via non-parametric MAD Modified Z-Score.
 // Target Telemetry: UDM_EVENTS (FILE_MODIFICATION, FILE_CREATION, FILE_DELETION)
 // Statistical Model: 4-Stage Non-Parametric Median Absolute Deviation / Modified Z-Score (Iglewicz & Hoaglin M_Z > 3.5)
@@ -832,6 +850,8 @@ Replaces deprecated `ata_attack_progression_*` rules and fixes the `"SENTINELONE
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Fuse 30-day Windows EDR alert anomalies with outbound network byte surges on the same host to detect double-extortion ransomware and full kill-chain progression.
 // Statistical Model: 4-Stage Roll-Up Sector Fusion (metrics.alert_event_name_count + metrics.network_bytes_outbound, D_sq >= 12.25)
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (COMPOSITE-ONLY METRIC + ENTITY-KEYED METRIC)
@@ -974,6 +994,8 @@ Individual behavioral queries in Scenarios 1–5 frequently fire inside ambiguou
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 5 Windows Threats scenarios (1 through 5B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
@@ -1073,3 +1095,19 @@ condition:
 order:
   $unified_threat_score desc
 ```
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

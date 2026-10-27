@@ -1,5 +1,7 @@
 # Extending Google SecOps Risk Analytics for UEBA with Multi-Stage Behavioral Models
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 ## 1. Architectural Overview: How Multi-Stage UEBA Complements Curated Detections
 
 The **Risk Analytics for UEBA** curated rule pack leverages pre-computed 30-day behavioral metrics (`metrics.*`) and entity context to detect anomalous network byte transfers, authentication spikes, new-user or new-device activity, and process-driven data exfiltration.
@@ -38,6 +40,8 @@ Replaces fragile $\mu + 2\sigma$ and $\text{CV} < 0.1$ gates with a **4-stage no
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect anomalous outbound network byte exfiltration per host using a 4-stage non-parametric Median Absolute Deviation (MAD) Modified Z-Score that resists historical burst masking.
 // Statistical Model: 4-Stage Robust Modified Z-Score (True Median Absolute Deviation vs. 30d metrics.network_bytes_outbound)
 // ARCHITECTURE: 4-STAGE ROBUST MODIFIED Z-SCORE (TRUE MEDIAN ABSOLUTE DEVIATION)
@@ -148,6 +152,8 @@ Catches low-and-slow multi-day drip exfiltration that stays below single-day $2\
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect low-and-slow multi-day outbound network exfiltration drift per host using a 2-Stage Longitudinal CUSUM accumulator.
 // Statistical Model: 2-Stage Longitudinal CUSUM Behavioral Drift (cusum_drift_score >= 3.0, drift_days >= 2)
 // ARCHITECTURE: 2-STAGE LONGITUDINAL CUSUM BEHAVIORAL DRIFT PIPELINE
@@ -238,6 +244,8 @@ Consolidates the curated detection rules rules into a **3-Stage Dual-Sector Eucl
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect curated detection rules progression and anomalous authentication surges per user by fusing 30-day failed and successful login baselines.
 // Statistical Model: 3-Stage Dual-Sector Euclidean Risk Fusion (D_sq = Z_fail_sq + Z_success_sq >= 12.25)
 // ARCHITECTURE: 3-STAGE SAME-ENTITY MULTI-SECTOR TELEMETRY FUSION
@@ -339,6 +347,8 @@ Evaluates hourly authentication failure-rate anomalies via **Beta-Binomial Empir
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED BETA-BINOMIAL EMPIRICAL BAYES AUTH FAILURE RATE PIPELINE
 // Goal: Detect sub-hour credential stuffing and brute-force failure-rate surges on candidate identities from Query 2A (strictly gated by Query 2A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Beta-Binomial Empirical Bayes Shrinkage
@@ -446,6 +456,8 @@ Replaces vendor-specific AD context joins and 24-hour cliffs with a **2-stage hy
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Isolate newly commissioned or rogue infant endpoints (<= 7 days old in DERIVED_CONTEXT) exhibiting anomalous authentication surges against 30-day baselines.
 // Statistical Model: 2-Stage Hybrid 30d Host Auth Z-Score + DERIVED_CONTEXT Infant Asset Age Multiplier
 // ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT ASSET AGE PIPELINE
@@ -530,6 +542,8 @@ Replaces the `> 150` account-creation rule, the `< 86400s` new-user AD rules, an
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect dormant or newly created accounts suddenly awakening with anomalous login or account-creation bursts using a Two-Part Zero-Inflated Hurdle Model.
 // Target Telemetry: UDM_EVENTS (USER_LOGIN, USER_CREATION)
 // Statistical Model: Two-Part Hurdle Outlier Model for Zero-Inflated Telemetry
@@ -616,6 +630,8 @@ Upgrades curated detection rules to a **4-stage composite roll-up fusion pipelin
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Fuse per-rule security alert anomalies with 30-day outbound network byte surges on the same host to detect multi-stage kill-chain progression.
 // Statistical Model: 4-Stage Roll-Up Sector Fusion (metrics.alert_event_name_count + metrics.network_bytes_outbound, D_sq >= 12.25)
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (COMPOSITE-ONLY METRIC + ENTITY-KEYED METRIC)
@@ -740,6 +756,8 @@ Evaluates hourly security alert surges strictly on candidate entities surfaced b
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED PERSONAL & UPSTREAM DELTA-Z PIPELINE
 // Goal: Detect localized hourly security alert surges on candidate entities from Query 4A (strictly gated by Query 4A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Hourly Standardized Personal Z-Score Fusion
@@ -833,6 +851,8 @@ Eliminates dependence on VirusTotal capability tags and `invalid-signature` modi
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect rare or newly introduced binaries (DERIVED_CONTEXT rolling_max <= 3) exhibiting anomalous execution surges against 30-day host baselines without relying on VirusTotal tags.
 // Statistical Model: 2-Stage Hybrid 30d File Execution Z-Score + DERIVED_CONTEXT 10-Day File Prevalence
 // ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT FILE PREVALENCE PIPELINE
@@ -941,6 +961,8 @@ Evaluates hourly process-initiated network egress velocity via **Poisson-Gamma B
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED EMPIRICAL BAYES GAMMA-POISSON SHRINKAGE PIPELINE
 // Goal: Detect hourly process-initiated network connection surges on candidate hosts from Query 5A (strictly gated by Query 5A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson-Gamma Bayesian Conjugate Updating
@@ -1048,6 +1070,8 @@ Individual behavioral queries in Scenarios 1–5 frequently fire inside ambiguou
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 5 Risk Analytics UEBA scenarios (1 through 5B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
@@ -1147,3 +1171,19 @@ condition:
 order:
   $unified_threat_score desc
 ```
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

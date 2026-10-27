@@ -1,5 +1,7 @@
 # Extending Mandiant Hunting Rules with Multi-Stage Behavioral Analytics in Google SecOps
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 ## 1. Architectural Overview: How Multi-Stage UEBA Complements Curated Detections
 
 The **Mandiant Hunting Rules** suite encodes frontline incident-response tradecraft across endpoint, cloud, network, and threat-intelligence domains—surfacing suspicious process lineage, living-off-the-land techniques, cloud control-plane anomalies, and reconnaissance patterns.
@@ -38,6 +40,8 @@ Replaces hundreds of static parent-child identification rules by computing empir
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect rare, anomalous parent-to-child process execution chains across endpoints via Markov 2-Gram Transition Surprisal.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH)
 // Statistical Model: Markov 2-Gram Transition Probability & Information Surprisal (I = -ln P(Child | Parent) >= 3.0)
@@ -129,6 +133,8 @@ Compensates for brittle command-line obfuscation regexes (`-enc`, `base64 -d`, P
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect obfuscated, Base64/Hex-encoded, or glob-masked process command lines across endpoints via Multi-Class Character Shannon Entropy.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH)
 // Statistical Model: Multi-Class Character Distribution Shannon Entropy (H(X) >= 3.8)
@@ -237,6 +243,8 @@ Closes the BigQuery `5–100` table hole, the GitHub `> 50` clone cliff, and uns
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect cloud identities and service accounts accessing or modifying cloud data repositories out of normal 30-day CRUD scope or from anomalous caller IPs.
 // ARCHITECTURE: 2-STAGE DUAL-BRANCH CLOUD REPOSITORY SCOPE & ORIGIN OUTLIER PIPELINE
 // Statistical Model: 4-Family Cloud CRUD + Origin IP Local-Baseline Isolation ($composite_risk >= 3.5)
@@ -422,6 +430,8 @@ Addresses zero-inflated cloud administrative and secret-access telemetry (`RESOU
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect dormant cloud principals suddenly awakening or active principals surging across cloud resource and secret-access APIs via a Two-Part Zero-Inflated Hurdle Model.
 // Target Telemetry: UDM_EVENTS (RESOURCE_READ, RESOURCE_WRITTEN, USER_RESOURCE_ACCESS)
 // Statistical Model: Two-Part Hurdle Outlier Model for Zero-Inflated Cloud Telemetry ($hurdle_threat_score >= 3.0)
@@ -512,6 +522,8 @@ Fuses 30-day host-to-domain HTTP query baselines (`metrics.http_queries_total`) 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Fuse 30-day HTTP query baselines with GLOBAL_CONTEXT WHOIS lifecycle metadata to detect anomalous traffic to newly registered or expired domains.
 // ARCHITECTURE: 2-STAGE DUAL-PLANE WHOIS DOMAIN LIFECYCLE PIPELINE
 // Statistical Model: 30d Parametric Z-Score (metrics.http_queries_total) + WHOIS Lifecycle Multiplier ($z_score >= 3.0)
@@ -615,6 +627,8 @@ Replaces static filename regexes (`/(setup\.exe|update\.js|...)/`) and unenforce
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Fuse 30-day host binary execution baselines with DERIVED_CONTEXT 10-day file prevalence to detect execution surges of rare or novel binaries.
 // ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT FILE PREVALENCE PIPELINE
 // Statistical Model: 30d Parametric Z-Score (metrics.file_executions_total) + ECG File Rarity (rolling_max <= 3)
@@ -735,6 +749,8 @@ Detects automated C2 implants (Cobalt Strike, Sliver, Brute Ratel, Mythic) by me
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect persistent Command & Control (C2) beaconing with randomized sleep jitter to low-prevalence external IPs via Coefficient of Variation.
 // Target Telemetry: UDM_EVENTS (NETWORK_CONNECTION)
 // Statistical Model: Inter-Arrival Jitter via Coefficient of Variation (CV = sigma / mu <= 0.20) & Fleet Prevalence Filter (<= 3 hosts)
@@ -829,6 +845,8 @@ Evaluates hourly host discovery and network enumeration surges strictly on candi
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED PERSONAL & UPSTREAM DELTA-Z PIPELINE
 // Goal: Detect localized post-exploitation discovery & lateral reconnaissance surges on candidate hosts from Query 4A (strictly gated by Query 4A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Hourly Standardized Personal Z-Score Fusion
@@ -925,6 +943,8 @@ Catches low-and-slow multi-day exfiltration across any protocol by accumulating 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect low-and-slow multi-day outbound data exfiltration drift across endpoints via Longitudinal CUSUM on 30-day network_bytes_outbound.
 // ARCHITECTURE: 2-STAGE LONGITUDINAL CUSUM BEHAVIORAL DRIFT PIPELINE
 // Statistical Model: Cumulative Sum Control Chart (S_t^+ = sum(max(0, Z_t - 0.5)) >= 3.0, drift_days >= 2)
@@ -1004,6 +1024,8 @@ Provides a 50%-breakdown-point non-parametric outlier detector over raw `NETWORK
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect acute outbound data exfiltration spikes on skewed host baselines via 4-Stage Non-Parametric Median Absolute Deviation (MAD / Modified Z-Score).
 // Target Telemetry: UDM_EVENTS (NETWORK_CONNECTION)
 // Statistical Model: Iglewicz-Hoaglin Modified Z-Score (M_Z > 3.5) with MeanAD Fallback
@@ -1114,6 +1136,8 @@ Individual behavioral queries in Scenarios 1–5 frequently fire inside ambiguou
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 5 Mandiant Hunting scenarios (1 through 5B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
@@ -1213,3 +1237,19 @@ condition:
 order:
   $unified_threat_score desc
 ```
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

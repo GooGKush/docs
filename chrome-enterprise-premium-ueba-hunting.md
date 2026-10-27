@@ -1,5 +1,7 @@
 # Hunting Chrome Enterprise Premium Browser & Extension Threats with Multi-Stage Behavioral Analytics in Google SecOps
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 ## 1. Architectural Overview: How Multi-Stage UEBA Complements Curated Detections
 
 The **Chrome Enterprise Premium Threats** curated detection pack provides high-confidence, real-time alerting for browser-layer threats, including password reuse, phishing navigation, malicious Chrome extension installations, data loss prevention (DLP) policy violations, and anomalous browser downloads.
@@ -42,6 +44,8 @@ Compensates for the `@`/`%40` regex bypass and `is_admin` filter by measuring in
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect obfuscated AitM phishing tokens, Base64/Hex-encoded victim lures, and high-entropy credential harvesting URLs across all Chrome users.
 // Target Telemetry: UDM_EVENTS (CHROME_MANAGEMENT navigation, passwordReuseEvent, passwordBreachEvent)
 // Statistical Model: Multi-Class Character Distribution Shannon Entropy (H(X) = -sum(p_i * log2(p_i)))
@@ -147,6 +151,8 @@ Compensates for the lack of post-reuse / post-breach authentication correlation 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect post-password-reuse and post-breach credential stuffing or account takeover across all users (admin and non-admin).
 // Statistical Model: 3-Stage Dual-Sector Euclidean Risk Fusion (D^2 = Z_fail^2 + Z_success^2 >= 12.25)
 // ARCHITECTURE: 3-STAGE SAME-ENTITY MULTI-SECTOR TELEMETRY FUSION
@@ -262,6 +268,8 @@ Because both **Zipfian Fleet Rarity** (fixing the `$ext_count < 3` constraint on
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Unify dormant/first-time Chrome extension hurdle activation (Two-Part Hurdle) and fleet-rare extension intensity (Zipfian IDF Rarity) in a single 4-stage pipeline, fixing the $ext_count < 3 constraint across both EXTERNAL and WEBSTORE extensions.
 // Target Telemetry: UDM_EVENTS (Chrome Browser Cloud Management extension events)
 // Statistical Model: Option 1 Piecewise Two-Part Zero-Inflated Hurdle + Zipf-Mandelbrot Inverse Host Frequency (IDF) Surprisal
@@ -379,6 +387,8 @@ Removes the `cookie_is_session = "true"` coverage considerations to cover **both
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect automated bursts of Chrome extension cookie harvesting (both session and persistent cookies) and tab screen captures via Poisson dispersion.
 // Target Telemetry: UDM_EVENTS (extensionTelemetryEvent: COOKIES_GET_ALL_INFO and TABS_API_INFO/CAPTURE_VISIBLE_TAB)
 // Statistical Model: Poisson Dispersion via Fano Factor (F = σ² / μ >= 4.0) & Fleet Prevalence Filter
@@ -474,6 +484,8 @@ Evaluates hourly Chrome Extension API and content-transfer velocity via **Poisso
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED EMPIRICAL BAYES GAMMA-POISSON SHRINKAGE PIPELINE
 // Goal: Detect abnormal Chrome extension API & content-transfer surges on candidate entities from Query 3A (strictly gated by Query 3A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson-Gamma Bayesian Conjugate Updating
@@ -573,6 +585,8 @@ Replaces the brittle 12-hour `first_seen_time` cliff with `DERIVED_CONTEXT` **10
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect endpoints communicating with rare external domains (10-day rolling_max <= 3 hosts) alongside an HTTP query surge, defeating the 12h/24h first_seen_time cliff.
 // Statistical Model: Hybrid 30-Day Behavioral Z-Score (metrics.http_queries_total) + DERIVED_CONTEXT 10-Day Prevalence Multiplier
 // ARCHITECTURE: 2-STAGE HYBRID METRIC + DERIVED_CONTEXT DOMAIN PREVALENCE PIPELINE
@@ -649,6 +663,8 @@ Evaluates quasi-periodic browser/extension C2 callback pacing ($\text{CV} = \sig
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED INTER-ARRIVAL JITTER COEFFICIENT OF VARIATION PIPELINE
 // Goal: Detect automated Chrome extension C2 beaconing (CV <= 0.25) on candidate hosts from Query 4A (strictly gated by Query 4A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Coefficient of Variation (CV = sigma / mu <= 0.25)
@@ -752,6 +768,8 @@ Fixes the `timestamp.current_seconds()` constraint by computing domain age relat
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect anomalous host HTTP activity targeting newly registered (<= 30d at event time) or expired/hijacked WHOIS domains.
 // Statistical Model: Hybrid 30-Day Behavioral Z-Score (metrics.http_queries_total) + GLOBAL_CONTEXT WHOIS Lifecycle Multiplier
 // ARCHITECTURE: 2-STAGE HYBRID METRIC + GLOBAL_CONTEXT WHOIS DOMAIN LIFECYCLE PIPELINE
@@ -835,6 +853,8 @@ Separates benign clicks on shortened URLs or SafeBrowsing warnings from active e
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Correlate browser redirect/exploit chains by fusing 30-day HTTP failure surges with DNS resolution surges on the same host.
 // Statistical Model: 3-Stage Dual-Sector Euclidean Risk Fusion (D^2 = Z_http_fail^2 + Z_dns_total^2 >= 12.25)
 // ARCHITECTURE: 3-STAGE SAME-ENTITY MULTI-SECTOR TELEMETRY FUSION
@@ -946,6 +966,8 @@ Bridges browser download telemetry with endpoint execution by scoring per-(host,
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect execution of rare, newly downloaded binaries (10-day org prevalence <= 3 hosts) with anomalous per-host execution frequency.
 // Statistical Model: Hybrid 30-Day Composite Metric Z-Score (metrics.file_executions_total) + DERIVED_CONTEXT 10-Day File Prevalence
 // ARCHITECTURE: 2-STAGE HYBRID METRIC + DERIVED_CONTEXT FILE PREVALENCE PIPELINE
@@ -1027,6 +1049,8 @@ Detects drive-by exploits, trojanized installers, and ClickFix / FakeUpdates soc
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect rare parent-to-child process execution transitions spawned by Chrome or user download directories via Markov 2-Gram Surprisal.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH)
 // Statistical Model: Markov 2-Gram Transition Probability & Information Surprisal (I = -ln(P(Child | Parent)))
@@ -1128,6 +1152,8 @@ Eliminates both hash-polymorphism evasion and developer-rollout false positives 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Isolate targeted host Chrome download surges while suppressing fleet-wide software rollouts via Dual-Baseline Delta-Z.
 // Target Telemetry: UDM_EVENTS (Chrome Browser Cloud Management download/transfer events)
 // Statistical Model: 3-Stage Dual-Baseline Population Normalization (Delta-Z = Z_Personal - max(0, Z_Fleet_Shift))
@@ -1227,6 +1253,8 @@ Defeats slow multi-hour download pacing (`>1h` between downloads) on endpoints w
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect multi-hour paced dangerous or unscanned Chrome downloads on users/hosts with near-zero historical baseline rates.
 // Target Telemetry: UDM_EVENTS (Chrome Browser Cloud Management dangerousDownloadEvent, malwareTransferEvent, unscannedFileEvent)
 // Statistical Model: Leave-One-Out Discrete Poisson Arrival Score (Poisson Z^2 = (k - λ)^2 / λ >= 9.0)
@@ -1323,6 +1351,8 @@ Removes all static file-extension, `target.url != /google/`, and `content_type !
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect anomalous spikes in Chrome file uploads and text/clipboard pastes (including text/plain and Google/non-Google destinations) using robust MAD scaling.
 // Target Telemetry: UDM_EVENTS (Chrome Browser Cloud Management sensitiveDataEvent and contentTransferEvent)
 // Statistical Model: 4-Stage Non-Parametric Median Absolute Deviation / Iglewicz-Hoaglin Modified Z-Score (M_Z > 3.5)
@@ -1415,6 +1445,8 @@ Catches stealthy, low-and-slow background extension exfiltration (`fetch()` / `W
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect low-and-slow background Chrome extension data exfiltration across multiple days via Longitudinal CUSUM drift on outbound bytes.
 // Statistical Model: 2-Stage Longitudinal CUSUM Behavioral Drift (k = 0.5 sigma slack, drift_days >= 2)
 // ARCHITECTURE: 2-STAGE LONGITUDINAL CUSUM BEHAVIORAL DRIFT PIPELINE
@@ -1499,6 +1531,8 @@ Fixes the dormant-user single-stage baseline constraints constraint using zero-s
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect post-compromise Google Workspace Drive hoarding and account abuse across all users (including dormant 0-baseline users) via a 3-Metric Multilevel Triad.
 // Statistical Model: Multilevel Triad Z-Scores (Personal + Fleet) & Composite Distance (D_vs_fleet^2 >= 12.25)
 // ARCHITECTURE: 3-METRIC MULTILEVEL PART-OF-THE-WHOLE TRIAD DAG
@@ -1617,6 +1651,8 @@ Correlates endpoint/browser security alerts (`metrics.alert_event_name_count` ro
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Fuse endpoint/browser security alert anomalies with outbound network byte surges on the same host to detect full kill-chain progression.
 // Statistical Model: 4-Stage Roll-Up Sector Fusion (metrics.alert_event_name_count + metrics.network_bytes_outbound, D^2 >= 12.25)
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (COMPOSITE-ONLY METRIC + ENTITY-KEYED METRIC)
@@ -1759,6 +1795,8 @@ Individual behavioral queries in Scenarios 1–9 frequently fire inside ambiguou
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 9 Chrome Enterprise Premium scenarios (1 through 9B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
@@ -1858,3 +1896,19 @@ condition:
 order:
   $unified_threat_score desc
 ```
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

@@ -1,5 +1,7 @@
 # Hunting macOS Endpoint Threats with Multi-Stage Behavioral Analytics in Google SecOps
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 ## 1. Architectural Overview: How Multi-Stage UEBA Complements Curated Detections
 
 The **macOS Threats** curated detection suite provides real-time coverage for macOS endpoints—including Gatekeeper bypasses (`xattr -d com.apple.quarantine`), AppleScript (`osascript`) execution chains, macOS info-stealers (AMOS, Poseidon, Banshee), Keychain and browser credential access, and `LaunchAgent`/`LaunchDaemon` persistence.
@@ -37,6 +39,8 @@ Compensates for brittle filename prefixes (`com.apple.*`), same-PID joins, and f
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect rare parent-to-child process execution transitions on macOS endpoints (Terminal, Finder, browsers, osascript, or mounted DMGs spawning shells, xattr, curl, or security) via Markov 2-Gram Surprisal.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH on macOS endpoints)
 // Statistical Model: Markov 2-Gram Transition Probability & Information Surprisal (I = -ln(P(Child | Parent)) >= 3.0)
@@ -130,6 +134,8 @@ Catches ad-hoc signed, unsigned, or quarantine-stripped Mach-O droppers (`BigMac
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect execution of rare or newly dropped Mach-O binaries on macOS endpoints (10-day org prevalence <= 3 hosts) with anomalous per-host execution frequency.
 // Statistical Model: Hybrid 30-Day Composite Metric Z-Score (metrics.file_executions_total) + DERIVED_CONTEXT 10-Day File Prevalence
 // ARCHITECTURE: 2-STAGE HYBRID METRIC + DERIVED_CONTEXT FILE PREVALENCE PIPELINE
@@ -220,6 +226,8 @@ Compensates for the `> 5` `do shell script` cutoff and signature-specific deobfu
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect obfuscated JXA/AppleScript stealer payloads, Base64/Hex command pipelines, and ClickFix shell one-liners on macOS via Multi-Class Character Shannon Entropy.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH for osascript, zsh, bash, sh on macOS)
 // Statistical Model: Multi-Class Character Distribution Shannon Entropy (H(X) = -sum(p_i * log2(p_i)) >= 3.8)
@@ -319,6 +327,8 @@ Evaluates hourly macOS Keychain, clipboard, and system discovery bursts ($F = \s
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED POISSON FANO FACTOR BURST DISPERSION PIPELINE
 // Goal: Detect macOS info-stealer and Keychain harvesting bursts on candidate endpoints from Query 2A (strictly gated by Query 2A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson Index of Dispersion (Fano Factor F = sigma^2 / mu >= 4.0)
@@ -415,6 +425,8 @@ Because both the **Two-Part Zero-Inflated Hurdle Model** (catching first-time or
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Unify first-time/dormant macOS persistence modification (Two-Part Hurdle) and fleet-rare persistent Mach-O execution (Zipfian IDF Rarity <= 2 hosts) in a single 4-stage pipeline.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH, FILE_CREATION, FILE_MODIFICATION on macOS)
 // Statistical Model: Option 1 Piecewise Two-Part Zero-Inflated Hurdle + Zipf-Mandelbrot Inverse Host Frequency (IDF) Surprisal
@@ -534,6 +546,8 @@ Catches staged `.zip`/`.tar.gz`/`.dmg` exfiltration and C2 domain resolution sur
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect staged macOS archive exfiltration and C2 domain resolution surges by fusing 30-day outbound network byte anomalies with DNS query anomalies on the same host.
 // Statistical Model: 3-Stage Dual-Sector Euclidean Risk Fusion (D^2 = Z_bytes_out^2 + Z_dns_total^2 >= 12.25)
 // ARCHITECTURE: 3-STAGE SAME-ENTITY MULTI-SECTOR TELEMETRY FUSION
@@ -636,6 +650,8 @@ Evaluates hourly outbound C2 callback inter-arrival pacing ($\text{CV} = \sigma 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED INTER-ARRIVAL JITTER COEFFICIENT OF VARIATION PIPELINE
 // Goal: Detect Poseidon, Mythic, Sliver, and custom macOS C2 beaconing (CV <= 0.25) on candidate hosts from Query 4A (strictly gated by Query 4A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Coefficient of Variation (CV = sigma / mu <= 0.25)
@@ -747,6 +763,8 @@ Individual behavioral queries in Scenarios 1–4 frequently fire inside ambiguou
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 4 macOS Threats scenarios (1 through 4B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
@@ -846,3 +864,19 @@ condition:
 order:
   $unified_threat_score desc
 ```
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

@@ -1,5 +1,7 @@
 # Hunting Multi-Stage Kill-Chain & Cloud/Endpoint Composite Threats with Behavioral Analytics in Google SecOps
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 ## 1. Architectural Overview: How Multi-Stage UEBA Complements Curated Detections
 
 The **Composite Rules** curated detection suite correlates multiple upstream rule detections or MITRE ATT&CK tactics across endpoint and cloud telemetry to surface multi-step intrusions.
@@ -37,6 +39,8 @@ Replaces the rigid `15m` window, `$rule_name_count > 2` cliff, and static `+40` 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Fuse endpoint security alert anomalies with outbound network byte surges on the same host to detect multi-stage endpoint kill chains across a full 24-hour window.
 // Statistical Model: 4-Stage Roll-Up Sector Fusion (metrics.alert_event_name_count + metrics.network_bytes_outbound, D^2 >= 12.25)
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (COMPOSITE-ONLY METRIC + ENTITY-KEYED METRIC)
@@ -162,6 +166,8 @@ Evaluates hourly endpoint process and security alert velocity via **Poisson-Gamm
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED EMPIRICAL BAYES GAMMA-POISSON SHRINKAGE PIPELINE
 // Goal: Detect multi-stage endpoint execution and alert bursts on candidate hosts from Query 1A (strictly gated by Query 1A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson-Gamma Bayesian Conjugate Updating
@@ -263,6 +269,8 @@ Detects lateral movement and ingress tool transfer on a host without requiring u
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect lateral movement authentication probing paired with ingress tool/payload transfer on the same endpoint via 30-day Dual-Sector Risk Fusion.
 // Statistical Model: 3-Stage Dual-Sector Threat Fusion (metrics.auth_attempts_fail + metrics.network_bytes_inbound, D^2 >= 12.25)
 // ARCHITECTURE: 3-STAGE DUAL-SECTOR THREAT FUSION (GENERIC: ANY TWO ENTITY-KEYED METRICS)
@@ -361,6 +369,8 @@ Evaluates hourly endpoint process execution surges against personal hourly basel
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED PERSONAL & UPSTREAM DELTA-Z PIPELINE
 // Goal: Detect post-authentication payload execution spikes on candidate hosts from Query 2A (strictly gated by Query 2A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Hourly Standardized Personal Z-Score Fusion
@@ -454,6 +464,8 @@ Eliminates the `10m` window cliff, `$method_count >= 3` magic number, and same-I
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect cloud account compromise followed by IAM/resource permission probing across any IP or cloud provider via 4-Stage Roll-Up Sector Fusion.
 // Statistical Model: 4-Stage Roll-Up Sector Fusion (metrics.resource_read_fail + metrics.auth_attempts_success, D^2 >= 12.25)
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (COMPOSITE-ONLY METRIC + ENTITY-KEYED METRIC)
@@ -585,6 +597,8 @@ Detects both dormant cloud accounts/service accounts suddenly waking up to harve
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect dormant or compromised cloud accounts and service accounts awakening with anomalous cross-service API activity (RESOURCE_READ, RESOURCE_WRITTEN, USER_RESOURCE_ACCESS).
 // Target Telemetry: UDM_EVENTS (RESOURCE_READ, RESOURCE_WRITTEN, USER_RESOURCE_ACCESS)
 // Statistical Model: Two-Part Zero-Inflated Hurdle Outlier Model (hurdle_threat_score >= 3.0)
@@ -686,6 +700,8 @@ Defeats both the `2h` composite window cliff and sub-$3\sigma$ daily pacing by c
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect low-and-slow multi-day data exfiltration drips that stay below single-day thresholds via Longitudinal CUSUM drift on 30-day outbound network bytes.
 // Statistical Model: 2-Stage Longitudinal CUSUM Behavioral Drift (cusum_drift_score >= 3.0, drift_days >= 2, k = 0.5 sigma slack)
 // ARCHITECTURE: 2-STAGE LONGITUDINAL CUSUM BEHAVIORAL DRIFT PIPELINE
@@ -761,6 +777,8 @@ Eliminates the `2h` correlation cliff between login (`T1078.004`) and storage ac
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect anomalous post-compromise cloud storage and resource access hoarding per user regardless of how many hours or days elapsed since initial login.
 // Target Telemetry: UDM_EVENTS (RESOURCE_READ, USER_RESOURCE_ACCESS, RESOURCE_WRITTEN)
 // Statistical Model: 4-Stage Non-Parametric Median Absolute Deviation / Iglewicz-Hoaglin Modified Z-Score (M_Z > 3.5)
@@ -873,6 +891,8 @@ Individual behavioral queries in Scenarios 1–4 frequently fire inside ambiguou
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 4 Composite Rules scenarios (1 through 4B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
@@ -972,3 +992,19 @@ condition:
 order:
   $unified_threat_score desc
 ```
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*

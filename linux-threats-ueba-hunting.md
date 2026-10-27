@@ -1,5 +1,7 @@
 # Hunting Linux Endpoint & Server Threats with Multi-Stage Behavioral Analytics in Google SecOps
 
+*Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
+
 ## 1. Architectural Overview: How Multi-Stage UEBA Complements Curated Detections
 
 The **Linux Threats** curated detection suite monitors server, cloud workload, and container host telemetry for dropper downloads (`curl`/`wget`), execution from ephemeral directories (`/tmp`, `/dev/shm`), privilege escalation, persistence (`cron`, `systemd`, `authorized_keys`), rootkits, and cryptominers.
@@ -37,6 +39,8 @@ Compensates for honeypot command-line overfitting by scoring every Linux binary 
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect execution of rare or newly dropped Linux binaries (10-day org prevalence <= 3 hosts) with anomalous per-host execution frequency.
 // Statistical Model: Hybrid 30-Day Composite Metric Z-Score (metrics.file_executions_total) + DERIVED_CONTEXT 10-Day File Prevalence
 // ARCHITECTURE: 2-STAGE HYBRID METRIC + DERIVED_CONTEXT FILE PREVALENCE PIPELINE
@@ -119,6 +123,8 @@ Detects RCE exploitation, web shells, and dropper staging when Linux server daem
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect rare parent-to-child process execution transitions where Linux server daemons spawn shells or downloaders via Markov 2-Gram Surprisal.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH on LINUX)
 // Statistical Model: Markov 2-Gram Transition Probability & Information Surprisal (I = -ln(P(Child | Parent)))
@@ -226,6 +232,8 @@ Addresses the hardcoded `#e > 10` threshold in curated detection rules and the u
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect Linux privilege escalation brute-forcing (su/sudo/ssh) followed by successful session elevation on the same host via 30-day Dual-Sector Auth Fusion.
 // Statistical Model: 3-Stage Dual-Sector Euclidean Risk Fusion (D^2 = Z_fail^2 + Z_success^2 >= 12.25)
 // ARCHITECTURE: 3-STAGE SAME-ENTITY MULTI-SECTOR TELEMETRY FUSION (HOST-KEYED)
@@ -324,6 +332,8 @@ Evaluates Linux privilege-escalation and credential-access utility execution via
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UDM-GATED TWO-PART ZERO-INFLATED HURDLE PIPELINE
 // Goal: Detect first-time or bursty Linux privilege-escalation utility execution on candidate hosts from Query 2A (strictly gated by Query 2A UDM Loopback candidates).
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Two-Part Zero-Inflated Hurdle Model
@@ -418,6 +428,8 @@ Because both **Personal Leave-One-Out Discrete Poisson Rarity** (catching built-
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Unify fleet-rare persistent Linux implants/daemons (Zipfian tail <= 2 hosts) and personal Leave-One-Out Poisson rarity on Linux persistence & kernel module tools (crontab, systemctl, insmod, modprobe, ld.so.preload) in a single 4-stage pipeline.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH on LINUX)
 // Statistical Model: Option 1 Piecewise Leave-One-Out Discrete Poisson Rarity + Zipfian Inverse Host Frequency Rarity
@@ -534,6 +546,8 @@ Detects obfuscated reverse shells, encoded rootkit stagers, and fileless Python/
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect obfuscated Linux reverse shells, encoded rootkit stagers, and high-entropy interpreter one-liners across the Linux fleet.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH on LINUX)
 // Statistical Model: Multi-Class Character Distribution Shannon Entropy (H(X) = -sum(p_i * log2(p_i)) >= 3.8)
@@ -634,6 +648,8 @@ Catches covert C2 beacons, cryptominer stratum traffic, and low-and-slow archive
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // Goal: Detect low-and-slow Linux data exfiltration, covert C2 traffic, and sustained cryptominer pool communication via Longitudinal CUSUM drift on outbound bytes.
 // Statistical Model: 2-Stage Longitudinal CUSUM Behavioral Drift (k = 0.5 sigma slack, cusum_drift_score >= 3.0, drift_days >= 2)
 // ARCHITECTURE: 2-STAGE LONGITUDINAL CUSUM BEHAVIORAL DRIFT PIPELINE
@@ -726,6 +742,8 @@ Individual behavioral queries in Scenarios 1–4 frequently fire inside ambiguou
 
 ```yara
 // ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 4 Linux Threats scenarios (1 through 4B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
@@ -825,3 +843,19 @@ condition:
 order:
   $unified_threat_score desc
 ```
+---
+
+## 📜 License
+This project is licensed under the [Apache License 2.0](LICENSE).
+```
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+---
+*Created and maintained by Greg Kushmerek for Google Security Operations (Chronicle SIEM & SOAR).*
