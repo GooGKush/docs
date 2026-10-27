@@ -15,7 +15,7 @@ Technical articles, threat hunting case studies, and reference guides for multi-
 
 ## Curated Detections UEBA Hunting Playbooks
 
-Cyclical multi-stage UEBA and statistical hunting playbooks supplementing Google SecOps Curated Detections across all 12 rule categories (featuring Option 1 inline piecewise cold-start + 30-day baselines and Option 3 UDM Loopback Capstone correlation with `run_id` read-after-write validation):
+Cyclical 3-wave multi-stage UEBA and statistical hunting playbooks supplementing Google SecOps Curated Detections across all 12 rule categories (featuring Wave 1 Option 1 piecewise cold-start + 30-day baselines, Wave 2 Option 3 `A -> UDM -> B` candidate-gated sub-hour statistical models via `:q[0-9]+_query_Xa` tags, and Wave 3 3-stage Unified Capstone Euclidean L2 convergence + raw telemetry forensic bridges with `run_id` read-after-write validation):
 
 * **[Chrome Enterprise Premium Threats UEBA Hunting](chrome-enterprise-premium-ueba-hunting.md)**
 * **[Cloud Threats UEBA Hunting](cloud-threats-ueba-hunting.md)**

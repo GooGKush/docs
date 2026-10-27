@@ -6,11 +6,12 @@ The **Non-Prioritized IOC Matching** curated detection pack provides broad indic
 
 To help analysts separate true compromises from benign shared-infrastructure noise—and to catch novel infrastructure before it appears on static lists—this playbook pairs indicator-adjacent telemetry with **30-Day Behavioral Baselines (`secops-risk-metrics-multistage`)**, **`DERIVED_CONTEXT` Local Prevalence**, **Shannon Subdomain Entropy**, **Leave-One-Out Discrete Poisson Arrival Rarity**, and **Empirical Bayes Connection Shrinkage**.
 
-### Complementary Detection Layers
+### Complementary Detection Layers (3-Wave `A -> UDM -> B` & Capstone Architecture)
 * **Curated Detections (Real-Time Deterministic & Single-Stage Layer)**: Provide immediate, low-latency alerting on high-confidence indicators, explicit attack syntax, and single-stage threshold breaches.
-* **Multi-Stage UEBA & Statistical Hunting Harness (Cyclical Behavioral Layer)**: Extends coverage beyond the built-in window and observation constraints of single-stage rules through two architectural patterns executed by `PlaybookRunner` in `agentic-ueba`:
-  1. **Option 1 — In-DAG Piecewise Cold-Start & Mature Baseline Unification**: Evaluates both newly active or dormant entities (`active_days <= 4` via a **Two-Part Zero-Inflated Hurdle** branch) and established entities (`active_days >= 5` via a **30-Day Parametric Z-Score** or **4-Stage Non-Parametric Median Absolute Deviation (MAD)** branch) inside a single unified YARA-L 2.0 query.
-  2. **Option 3 — UDM Loopback Connective Tissue & Run-Scoped Capstone Convergence**: Every upstream query match is ingested back into Chronicle as a structured `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` UDM event stamped with the execution cycle's unique `run_id` (`metadata.product_log_id`). Before the **Capstone Query** executes, `PlaybookRunner` validates via a read-after-write UDM search barrier (`verify_udm_run_indexed()`) that all upstream events are indexed, and then correlates entities exhibiting multi-scenario convergence ($\sum Z_i^2 \ge 25.0$).
+* **Multi-Stage UEBA & Statistical Hunting Harness (Cyclical 3-Wave Layer)**: Extends coverage beyond the built-in window and observation constraints of single-stage rules through a **3-Wave Execution Pipeline** orchestrated by `PlaybookRunner` in `agentic-ueba`:
+  1. **Wave 1 — Consolidated Single-Shot Queries & Parallel Pairs (`Option 1` Piecewise Cold-Start + 30d Baselines)**: Executes all `by 1d` `metrics.*` baselines, inline Piecewise Cold-Start/Mature unified queries (`active_days <= 4` Hurdle vs. `active_days >= 5` 30-day Z-Score/MAD), and tightly pre-filtered statistical hunter queries concurrently. Every match is ingested into Chronicle UDM as a `GENERIC_EVENT` (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`) stamped with the cycle's unique `run_id` (`metadata.product_log_id`) and hierarchical rule tag (`:q[0-9]+_query_Xa`).
+  2. **Wave 2 — Serial `A -> UDM -> B` Candidate-Gated Queries (`Option 3` Stage B Loopback)**: After `PlaybookRunner` flushes Wave 1 findings and verifies indexing via `verify_udm_run_indexed()`, Wave 2 `Query XB` queries read `Query XA`'s candidate entities in Stage 1 (`re.regex(security_result.rule_name, `:q[0-9]+_query_Xa`)`) to bound sub-day (`by 1h`) raw cadence, dispersion, and shrinkage calculations without risking 1M-row enterprise scan caps.
+  3. **Wave 3 — Unified 3-Stage Capstone Convergence & Raw Telemetry Forensic Bridge (`Query 4`)**: Unions all upstream scenario tags (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-3]`)`), deduplicates per scenario in Stage 1, computes cross-scenario Euclidean L2 convergence (`$distinct_scenarios_matched >= 2` and `$capstone_threat_norm_sq >= 18.0`) in Stage 2, and pivots winning entities directly into raw endpoint, network, and cloud telemetry in Stage 3.
 
 ### Table 1: Scenario Coverage Matrix — Applied Threat Intelligence — Non-Prioritized IOC Matching & Complementary UEBA Analytics
 
@@ -155,6 +156,7 @@ stage dns_feature_extraction {
   outcome:
     $query_count = count(metadata.id)
     $raw_len = max(strings.length($domain))
+    $safe_len = if($raw_len > 0, $raw_len, 1)
 
     // Character-class counts via regex replacement length deltas (bracket-free RE2 syntax for AST compliance)
     $len_no_lower = max(strings.length(re.replace($domain, `a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z`, "")))
@@ -166,6 +168,11 @@ stage dns_feature_extraction {
     $c_digit = $raw_len - $len_no_digit
     $c_other_raw = $raw_len - ($c_lower + $c_upper + $c_digit)
     $c_other = if($c_other_raw > 0, $c_other_raw, 0)
+
+    $p_lower = ($c_lower + 0.01) / ($safe_len + 0.04)
+    $p_upper = ($c_upper + 0.01) / ($safe_len + 0.04)
+    $p_digit = ($c_digit + 0.01) / ($safe_len + 0.04)
+    $p_other = ($c_other + 0.01) / ($safe_len + 0.04)
 }
 
 // Stage 2: Enterprise fleet prevalence of each distinct queried DNS domain across hosts
@@ -190,34 +197,15 @@ match:
 outcome:
   $q_count = max($dns_feature_extraction.query_count)
   $len = max($dns_feature_extraction.raw_len)
-  $safe_len = if($len > 0, $len, 1)
+  $p_lower = max($dns_feature_extraction.p_lower)
+  $p_upper = max($dns_feature_extraction.p_upper)
+  $p_digit = max($dns_feature_extraction.p_digit)
+  $p_other = max($dns_feature_extraction.p_other)
 
-  $n_lower = max($dns_feature_extraction.c_lower)
-  $n_upper = max($dns_feature_extraction.c_upper)
-  $n_digit = max($dns_feature_extraction.c_digit)
-  $n_other = max($dns_feature_extraction.c_other)
-
-  // Empirical probability per character class (pre-computed for outcome if() compliance)
-  $raw_p_lower = $n_lower / $safe_len
-  $raw_p_upper = $n_upper / $safe_len
-  $raw_p_digit = $n_digit / $safe_len
-  $raw_p_other = $n_other / $safe_len
-
-  $p_lower = if($n_lower > 0, $raw_p_lower, 0.0001)
-  $p_upper = if($n_upper > 0, $raw_p_upper, 0.0001)
-  $p_digit = if($n_digit > 0, $raw_p_digit, 0.0001)
-  $p_other = if($n_other > 0, $raw_p_other, 0.0001)
-
-  // Shannon Entropy H = -sum(p_i * log2(p_i)) scaled to byte-entropy equivalent (0.0 to 5.0)
-  $raw_h_lower = (0.0 - $p_lower) * (math.log($p_lower) / 0.693147)
-  $raw_h_upper = (0.0 - $p_upper) * (math.log($p_upper) / 0.693147)
-  $raw_h_digit = (0.0 - $p_digit) * (math.log($p_digit) / 0.693147)
-  $raw_h_other = (0.0 - $p_other) * (math.log($p_other) / 0.693147)
-
-  $h_lower = if($n_lower > 0, $raw_h_lower, 0.0)
-  $h_upper = if($n_upper > 0, $raw_h_upper, 0.0)
-  $h_digit = if($n_digit > 0, $raw_h_digit, 0.0)
-  $h_other = if($n_other > 0, $raw_h_other, 0.0)
+  $h_lower = (0.0 - $p_lower) * (math.log($p_lower) / 0.693147)
+  $h_upper = (0.0 - $p_upper) * (math.log($p_upper) / 0.693147)
+  $h_digit = (0.0 - $p_digit) * (math.log($p_digit) / 0.693147)
+  $h_other = (0.0 - $p_other) * (math.log($p_other) / 0.693147)
 
   $class_entropy = $h_lower + $h_upper + $h_digit + $h_other
   $length_bonus = if($len >= 48, 0.5, 0.0)
@@ -540,34 +528,48 @@ order:
   $threat_score desc
 ```
 
-#### Query 3B: Empirical Bayes Gamma-Poisson Credibility Shrinkage on Outbound Network Connection Bursts (`secops-statistical-hunter`)
-Replaces the rigid `#e > 100` hourly connection cliff in curated detection rules with **Method-of-Moments Empirical Bayes Gamma-Poisson Credibility Shrinkage** (`by 1h`). By estimating each host's Gamma prior parameters ($\alpha_0 = \mu^2 / \sigma^2, \beta_0 = \mu / \sigma^2$) across active hours and filtering out blocked connections (`not security_result.action = "BLOCK"`), noisy proxy/NAT hosts are automatically shrunk toward their prior mean while a sudden connection burst on a stable endpoint triggers a high posterior belief shift ($\text{anomaly\_score} \ge 3.0$) well below 100 events.
+#### Query 3B: 4-Stage UDM-Gated Empirical Bayes Gamma-Poisson Shrinkage on Outbound Network Connection Bursts (`secops-statistical-hunter`)
+Evaluates hourly outbound network connection bursts via **Poisson-Gamma Bayesian Conjugate Updating** strictly on candidate endpoints surfaced by `Query 3A` via UDM Loopback (`re.regex(security_result.rule_name, `:q[0-9]+_query_3a`)`).
 
 ```yara
 // ============================================================================
-// Goal: Replace rigid #e > 100 hourly connection cutoffs with host-adaptive Empirical Bayes Gamma-Poisson Credibility Shrinkage over unblocked outbound network connections.
-// Target Telemetry: UDM_EVENTS (NETWORK_CONNECTION)
-// Statistical Model: Poisson-Gamma Bayesian Conjugate Updating & Credibility Weighting (by 1h, anomaly_score >= 3.0)
-// Skill: secops-statistical-hunter
+// ARCHITECTURE: 4-STAGE UDM-GATED EMPIRICAL BAYES GAMMA-POISSON SHRINKAGE PIPELINE
+// Goal: Detect hourly outbound network connection bursts on candidate endpoints from Query 3A (strictly gated by Query 3A UDM Loopback candidates).
+// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson-Gamma Bayesian Conjugate Updating
 // ============================================================================
 
-// Stage 1: Hourly unblocked outbound network connection volume and target IP diversity per host
+stage stage1_upstream_3a_candidates {
+    metadata.event_type = "GENERIC_EVENT"
+    metadata.vendor_name = "Google SecOps"
+    metadata.product_name = "SecOps Risk Metrics Hunter"
+    metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"
+    metadata.product_log_id = $run_id
+    re.regex(security_result.rule_name, `:q[0-9]+_query_3a`)
+    $host = strings.coalesce(principal.user.userid, principal.asset.hostname, principal.hostname, principal.ip[0])
+    $host != ""
+    $run_id != ""
+
+  match:
+    $host
+
+  outcome:
+    $upstream_3a_z = max(security_result.confidence_score)
+}
+
 stage host_hourly_activity {
     metadata.event_type = "NETWORK_CONNECTION"
-    not security_result.action = "BLOCK"
-    principal.asset.hostname = $host
+    network.sent_bytes > 0
+    $host = strings.coalesce(principal.user.userid, principal.asset.hostname, principal.hostname, principal.ip[0])
     $host != ""
-    target.ip != ""
 
   match:
     $host by 1h
 
   outcome:
     $hourly_count = count(metadata.id)
-    $distinct_targets = count_distinct(target.ip)
+    $distinct_exts = count_distinct(target.ip)
 }
 
-// Stage 2: Historical Parameter Estimation (Method of Moments Gamma Prior per host)
 stage host_prior_stats {
     $host = $host_hourly_activity.host
 
@@ -580,57 +582,40 @@ stage host_prior_stats {
     $active_hours = count($host_hourly_activity.window_start)
 }
 
-// Stage 3: Organizational Peer Prevalence Baseline per hourly window
-stage fleet_context {
-    $ws = $host_hourly_activity.window_start
-
-  match:
-    $ws by 1h
-
-  outcome:
-    $fleet_hosts = count_distinct($host_hourly_activity.host)
-}
-
-// Root Stage: Bayesian Conjugate Updating, Credibility Scoring & 6 Core Evidence Pillars
+$host = $stage1_upstream_3a_candidates.host
 $host = $host_hourly_activity.host
 $host = $host_prior_stats.host
 $ws = $host_hourly_activity.window_start
-$ws = $fleet_context.ws
 
 match:
   $host, $ws by 1h
 
 outcome:
-  // 6 Core Evidence Pillars
+  $upstream_z = max($stage1_upstream_3a_candidates.upstream_3a_z)
   $observation_count = max($host_hourly_activity.hourly_count)
   $baseline_active_samples = max($host_prior_stats.active_hours)
   $baseline_mean = max($host_prior_stats.hist_mean)
   $baseline_dispersion = max($host_prior_stats.hist_stddev)
-  $fleet_prevalence = max($fleet_context.fleet_hosts)
-  $distinct_binaries = max($host_hourly_activity.distinct_targets)
+  $fleet_prevalence = 1
+  $distinct_binaries = max($host_hourly_activity.distinct_exts)
 
-  // Method-of-Moments Gamma Prior (alpha_0 = mu^2 / sigma^2, beta_0 = mu / sigma^2)
   $variance = max($host_prior_stats.hist_stddev) * max($host_prior_stats.hist_stddev)
   $safe_var = if($variance > 0, $variance, 1.0)
-  $beta_prior = max($host_prior_stats.hist_mean) / $safe_var
-  $alpha_prior = (max($host_prior_stats.hist_mean) * max($host_prior_stats.hist_mean)) / $safe_var
-  $posterior_arrival_rate = ($alpha_prior + max($host_hourly_activity.hourly_count)) / ($beta_prior + 1.0)
-  $prior_weight_pct = $beta_prior / ($beta_prior + 1.0)
-  $evidence_weight_pct = 1.0 / ($beta_prior + 1.0)
-  $safe_hist_mean = if(max($host_prior_stats.hist_mean) > 0, max($host_prior_stats.hist_mean), 1.0)
-  $anomaly_score = $posterior_arrival_rate / $safe_hist_mean
-
-  // Option 1 Piecewise Unification: Cold-Start Hurdle (<= 3 active hours) + Mature Empirical Bayes Shrinkage (>= 4 active hours)
-  $hurdle_rarity_boost = if($baseline_active_samples <= 3, 2.5, 1.0)
-  $hurdle_threat_score = math.log($observation_count + 1) * $hurdle_rarity_boost
-  $unified_threat_score = if($baseline_active_samples <= 3, $hurdle_threat_score, $anomaly_score)
+  $alpha_0 = (max($host_prior_stats.hist_mean) * max($host_prior_stats.hist_mean)) / $safe_var
+  $beta_0 = max($host_prior_stats.hist_mean) / $safe_var
+  $credibility_z = $baseline_active_samples / ($baseline_active_samples + $beta_0 + 1.0)
+  $posterior_rate = ($alpha_0 + $observation_count) / ($beta_0 + 1.0)
+  $safe_mean = if($baseline_mean > 0, $baseline_mean, 1.0)
+  $gamma_shrinkage_score = ($posterior_rate / $safe_mean) * (1.0 + $credibility_z)
+  $z_score = $gamma_shrinkage_score
 
 condition:
-  $observation_count >= 15
-  and $unified_threat_score >= 3.0
+  $baseline_active_samples >= 2
+  and $observation_count >= 10
+  and $gamma_shrinkage_score >= 3.5
 
 order:
-  $unified_threat_score desc
+  $gamma_shrinkage_score desc
 ```
 
 ---
@@ -642,92 +627,115 @@ order:
 * **Curated Detection Operational Focus**: Individual domain, file, or IP indicator matches evaluated independently.
 * **How Multi-Stage UEBA Extends Coverage**: Correlates endpoints matching $\ge 2$ distinct behavioral domain, file, or IP scenarios in the current run (`Option 3` UDM Loopback `PLAYBOOK_BEHAVIORAL_HUNT_MATCH`) via an $L_2$ Euclidean risk norm ($\sum Z_i^2 \ge 25.0$).
 
-#### Capstone Query: Multi-Scenario Endpoint Convergence via UDM Loopback (`secops-statistical-hunter`)
+### Scenario 4: Unified 3-Stage Capstone Multi-Scenario Convergence & Raw Telemetry Forensic Bridge (`Option 3` Cross-Query Connective Tissue)
+
+Individual behavioral queries in Scenarios 1–3 frequently fire inside ambiguous overlap regimes when evaluated in isolation. Furthermore, 30-day `metrics.*` stages aggregate away raw forensic artifacts such as full process paths or specific cloud/web resource names.
+
+**Scenario 4 (`Query 4`)** executes in **Wave 3** after all **Wave 1** (upstream `by 1d` and pre-filtered queries) and **Wave 2** (inline UDM-gated `Query XB` Stage B queries) have exported their findings into Chronicle's unified `GENERIC_EVENT` UDM stream (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`):
+1. **Regex Union Token Matching Across All 3 Scenarios (`stage1_per_scenario_dedup`)**: Matches `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` events for the active `$run_id` using a single hierarchical regex union (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-3]`)`) and deduplicates by `$entity, $scenario_tag`.
+2. **Multi-Scenario Euclidean L2 Rollup (`stage2_multi_scenario_rollup`)**: Aggregates across Stage 1 by `$entity`, counting distinct scenario tags (`$distinct_scenarios_matched >= 2`) and summing their squared Z-scores (`$capstone_threat_norm_sq >= 18.0`).
+3. **Raw Telemetry Forensic Pivot (`stage3_raw_forensic_pivot` & Root Join)**: Simultaneously aggregates raw telemetry (`PROCESS_LAUNCH`, `NETWORK_CONNECTION`, `RESOURCE_READ`, `USER_RESOURCE_ACCESS`, `USER_LOGIN`) by `$entity` and joins it with Stage 2 in Root to deliver both the cross-scenario Euclidean L2 convergence score and concrete raw forensic artifacts in a single query.
+
+#### Query 4: 3-Stage Unified Capstone Multi-Scenario Convergence & Raw Telemetry Forensic Bridge (`secops-statistical-hunter`)
 
 ```yara
 // ============================================================================
-// Goal: Correlate normalized UEBA hunt matches across Domain, Binary, and Network IOC scenarios via UDM Loopback to detect multi-plane host compromise.
-// Statistical Model: Cross-Scenario Euclidean Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0)
-// ARCHITECTURE: CAPSTONE UDM LOOPBACK CONVERGENCE PIPELINE (OPTION 3)
+// ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
+// Goal: Deduplicate and roll up normalized UEBA hunt matches across all 3 Non-Prioritized IOC Matching scenarios (1 through 3B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
+// Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
 // Skill: secops-statistical-hunter
 // ============================================================================
 
-stage stage1_query_dedup {
+stage stage1_per_scenario_dedup {
     metadata.event_type = "GENERIC_EVENT"
     metadata.vendor_name = "Google SecOps"
     metadata.product_name = "SecOps Risk Metrics Hunter"
     metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"
     metadata.product_log_id = $run_id
-    security_result.rule_name = $query_name
-    $entity = coalesce(principal.asset.hostname, principal.user.userid, principal.ip[0])
+    re.regex(security_result.rule_name, `:q[0-9]+_query_[1-3]`)
+    $scenario_tag = security_result.rule_name
+    $entity = strings.coalesce(principal.user.userid, principal.asset.hostname, principal.ip[0])
     $entity != ""
     $run_id != ""
 
   match:
-    $entity, $query_name
+    $entity, $scenario_tag
 
   outcome:
-    $max_query_z = max(security_result.confidence_score)
-    $query_sq = max(security_result.confidence_score) * max(security_result.confidence_score)
-    $match_events = count(metadata.id)
-    $latest_run_id = max(metadata.product_log_id)
+    $scenario_z = max(security_result.confidence_score)
+    $scenario_cri = max(security_result.risk_score)
+    $scenario_z_sq = max(security_result.confidence_score) * max(security_result.confidence_score)
+    $scenario_hits = count(metadata.id)
+    $run_ids = array_distinct(metadata.product_log_id)
 }
 
-$entity = $stage1_query_dedup.entity
+stage stage2_multi_scenario_rollup {
+    $entity = $stage1_per_scenario_dedup.entity
+
+  match:
+    $entity
+
+  outcome:
+    $distinct_scenarios_matched = count_distinct($stage1_per_scenario_dedup.scenario_tag)
+    $matched_scenario_tags = array_distinct($stage1_per_scenario_dedup.scenario_tag)
+    $correlated_run_ids = array_distinct($stage1_per_scenario_dedup.run_ids)
+    $total_loopback_matches = sum($stage1_per_scenario_dedup.scenario_hits)
+    $peak_scenario_z = max($stage1_per_scenario_dedup.scenario_z)
+    $peak_scenario_cri = max($stage1_per_scenario_dedup.scenario_cri)
+    $capstone_threat_norm_sq = sum($stage1_per_scenario_dedup.scenario_z_sq)
+}
+
+stage stage3_raw_forensic_pivot {
+    (
+        metadata.event_type = "PROCESS_LAUNCH" or
+        metadata.event_type = "NETWORK_CONNECTION" or
+        metadata.event_type = "RESOURCE_READ" or
+        metadata.event_type = "USER_RESOURCE_ACCESS" or
+        metadata.event_type = "USER_LOGIN"
+    )
+    $entity = strings.coalesce(principal.user.userid, principal.asset.hostname, principal.ip[0])
+    $entity != ""
+
+  match:
+    $entity
+
+  outcome:
+    $raw_event_count = count(metadata.id)
+    $distinct_event_types = count_distinct(metadata.event_type)
+    $sample_processes = array_distinct(target.process.file.full_path)
+    $sample_resources = array_distinct(target.resource.name)
+    $total_sent_bytes = sum(network.sent_bytes)
+}
+
+$entity = $stage2_multi_scenario_rollup.entity
+$entity = $stage3_raw_forensic_pivot.entity
 
 match:
   $entity
 
 outcome:
-  $distinct_scenarios_matched = count_distinct($stage1_query_dedup.query_name)
-  $matched_queries = array_distinct($stage1_query_dedup.query_name)
-  $correlated_run_ids = array_distinct($stage1_query_dedup.latest_run_id)
-  $latest_run_id = max($stage1_query_dedup.latest_run_id)
-  $total_loopback_matches = sum($stage1_query_dedup.match_events)
-  $peak_scenario_z = max($stage1_query_dedup.max_query_z)
-  $capstone_threat_norm_sq = sum($stage1_query_dedup.query_sq)
+  $distinct_scenarios_matched = max($stage2_multi_scenario_rollup.distinct_scenarios_matched)
+  $matched_scenario_tags = array_distinct($stage2_multi_scenario_rollup.matched_scenario_tags)
+  $correlated_run_ids = array_distinct($stage2_multi_scenario_rollup.correlated_run_ids)
+  $total_loopback_matches = max($stage2_multi_scenario_rollup.total_loopback_matches)
+  $peak_scenario_z = max($stage2_multi_scenario_rollup.peak_scenario_z)
+  $peak_scenario_cri = max($stage2_multi_scenario_rollup.peak_scenario_cri)
+  $capstone_threat_norm_sq = max($stage2_multi_scenario_rollup.capstone_threat_norm_sq)
   $capstone_threat_score = math.sqrt($capstone_threat_norm_sq)
+
+  $raw_event_count = max($stage3_raw_forensic_pivot.raw_event_count)
+  $distinct_event_types = max($stage3_raw_forensic_pivot.distinct_event_types)
+  $sample_processes = array_distinct($stage3_raw_forensic_pivot.sample_processes)
+  $sample_resources = array_distinct($stage3_raw_forensic_pivot.sample_resources)
+  $total_sent_bytes = max($stage3_raw_forensic_pivot.total_sent_bytes)
+
+  $unified_threat_score = $capstone_threat_score + math.log($raw_event_count + 1)
 
 condition:
   $distinct_scenarios_matched >= 2
   and $capstone_threat_norm_sq >= 18.0
+  and $raw_event_count >= 1
 
 order:
-  $capstone_threat_norm_sq desc
+  $unified_threat_score desc
 ```
-
----
-
----
-
-## 3. Appendix: A Practitioner's Plain-English Guide to the 6 Statistical Models
-
-### 3.1 Hybrid 30-Day HTTP Volume + `DERIVED_CONTEXT` 10-Day Domain Prevalence (Query 1A)
-* **What it measures**: How unusual today's HTTP request volume is for a specific `(host, domain)` pair compared to its 30-day behavioral baseline (`metrics.http_queries_total`), restricted strictly to external domains seen on **3 or fewer hosts** across the entire enterprise over the past 10 days (`rolling_max <= 3`).
-* **Why static IOC rules fail**: curated detection rules alert on every single DNS lookup to a domain on a threat feed. When a shared CDN, cloud load balancer, or sinkholed domain is listed on a feed, hundreds of endpoints trigger false-positive alerts simultaneously.
-* **How the math works**: Stage 1 computes the host's 30-day Z-score $Z = (\text{obs} - \mu_{30\text{d}}) / \max(\sigma_{30\text{d}}, 1.0)$, while Stage 2 performs an inner join against Chronicle's `DERIVED_CONTEXT` Entity Context Graph (`day_count = 10`, `rolling_max <= 3`). Popular domains (`rolling_max > 3`) are dropped automatically, while domains first seen within the last 7 days (`$domain_age_days <= 7.0`) receive a $2.5\times$ rarity multiplier.
-
-### 3.2 Multi-Class Character Shannon Entropy ($H(X)$ — Query 1B)
-* **What it measures**: How mixed and unpredictable the characters inside a queried DNS hostname (`network.dns.questions.name`) are across lowercase letters, uppercase letters, digits, and punctuation/hyphens, combined with how few endpoints in the fleet resolved that domain (`$fleet_prevalence <= 3`).
-* **Why static IOC rules fail**: Static domain feeds only contain *known* malicious domains. Domain Generation Algorithms (DGAs), DNS tunneling tools (`iodine`, `dnscat2`), and newly registered C2 domains are absent from `C2Domains` and `CryptominingDomains`, and mixed-case DNS queries bypass curated detection rules's lowercase regex.
-* **How the math works**: Human-readable domains (`api.payments.example.com`) consist mostly of lowercase letters, concentrating probability mass in a single character class and yielding low entropy. Algorithmic DGA domains and Base32/Base64/Hex-encoded DNS tunneling queries mix character classes and long labels, driving the scaled 4-class Shannon entropy score $H(X) = -\sum_{i=1}^4 p_i \log_2 p_i$ above `3.8` bits/character.
-
-### 3.3 Hybrid 30-Day Process Execution + `DERIVED_CONTEXT` 10-Day File Prevalence (Query 2A)
-* **What it measures**: A host's daily execution surge for a specific binary SHA-256 (`metrics.file_executions_total`) compared to its 30-day baseline, gated on `DERIVED_CONTEXT` 10-day organizational file prevalence (`rolling_max <= 3` hosts).
-* **Why static IOC rules fail**: curated detection rules fires every hour on sanctioned corporate RMM tools deployed across thousands of machines, while curated detection rules checks the *parent* hash (`principal.process.file.sha256`) and only looks at user-level history.
-* **How the math works**: By requiring `file.prevalence.rolling_max <= 3` over `day_count = 10`, any sanctioned RMM agent or IT utility installed across the enterprise fleet is suppressed. Only binaries present on $\le 3$ machines that also exhibit a per-host execution anomaly ($Z \ge 3.0\sigma$) surface, with binaries first seen in the environment $\le 7$ days ago receiving a $2.5\times$ threat boost.
-
-### 3.4 Leave-One-Out Discrete Poisson Arrival Rarity ($Z_{\text{Poisson}}^2$ — Query 2B)
-* **What it measures**: The mathematical improbability of observing $k \ge 2$ executions today of a sensitive RMM, tunneling, or cryptomining binary (`target.process.file.full_path`) on an endpoint where the binary's historical arrival rate $\lambda$ over the prior 29 days is near zero ($\lambda \le 0.5\text{ runs/day}$).
-* **Why static IOC rules fail**: Recompiling an open-source miner (`xmrig`) or repacking an RMM binary changes its SHA-256 hash, defeating `Cryptomining Hash`, `Remote Access Tools`, and `Bad Linux Binary` hash feeds. Furthermore, standard Z-scores fail on rare binaries because a 30-day sample standard deviation $\sigma \approx 0$ causes divide-by-zero distortion.
-* **How the math works**: For rare discrete events, Poisson theory establishes that the variance equals the mean arrival rate ($\sigma^2 = \lambda$). Computing the leave-one-out Jeffreys-smoothed rate $\lambda = (\text{total\_hist} - k + 0.5) / 29.0$ ensures today's surge $k$ does not contaminate its own baseline, and scoring $Z_{\text{Poisson}}^2 = (k - \lambda)^2 / \lambda \ge 9.0$ ($Z_{\text{Poisson}} \ge 3.0\sigma$) cleanly isolates first-time or rare binary bursts.
-
-### 3.5 Hybrid 30-Day Outbound Network Bytes + `DERIVED_CONTEXT` Infant Asset Age (Query 3A)
-* **What it measures**: How many standard deviations a host's daily outbound byte volume (`network.sent_bytes`) exceeds its 30-day behavioral baseline (`metrics.network_bytes_outbound`), intersected with `DERIVED_CONTEXT` asset age (`first_seen_time` within $\le 7.0$ days of the event).
-* **Why static IOC rules fail**: Static IP rules only inspect connection counts to known `GCTI Feed` IPs, ignoring both outbound data volume (`sent_bytes`) and whether the source machine is a newly spun-up rogue VM, shadow container, or unmanaged appliance communicating with unlisted adversary infrastructure.
-* **How the math works**: Stage 1 computes the 30-day outbound byte Z-score per host, and Stage 2 retrieves `min(asset.first_seen_time.seconds)` from `DERIVED_CONTEXT`. Computing event-relative asset age `$asset_age_days = ($obs_ts - $first_seen) / 86400.0` (safe for historical retrohunts) and gating on `$asset_age_days <= 7.0` with a $2.5\times$ multiplier immediately spotlights infant assets performing C2 or exfiltration.
-
-### 3.6 Empirical Bayes Gamma-Poisson Credibility Shrinkage (Query 3B)
-* **What it measures**: The ratio of a host's Bayesian posterior hourly connection rate to its historical mean (`$anomaly_score >= 3.0`), where the host's observed hourly spike is weighted by how stable and predictable that host's historical network traffic is.
-* **Why static IOC rules fail**: curated detection rules enforce a rigid `#e > 100` connections/hour cliff—missing 60-connection/hour C2 beacons on quiet servers while still false-alerting on busy NAT gateways or developer build hosts.
-* **How the math works**: Stage 2 estimates a Gamma prior ($\alpha_0 = \mu^2 / \sigma^2, \beta_0 = \mu / \sigma^2$) from each host's hourly connection history. Volatile, noisy hosts have high variance ($\sigma^2 \gg \mu$), which drives $\beta_0 \to 0$ and shrinks their anomaly score unless the surge is massive. Conversely, a predictable server with low variance has high prior credibility, allowing a moderate burst of 15–30 unblocked connections in an hour to cross `anomaly_score >= 3.0` without waiting for `#e > 100`.

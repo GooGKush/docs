@@ -6,11 +6,12 @@ The **Chrome Enterprise Premium Threats** curated detection pack provides high-c
 
 This playbook supplements those point-in-time and single-stage browser detections with cyclical **Multi-Stage Behavioral Analytics** (`secops-risk-metrics-multistage` and `secops-statistical-hunter`). By combining **30-day behavioral baselines (`metrics.*`)** with **multi-stage statistical models over raw Chrome Enterprise telemetry**, the UEBA harness extends visibility beyond the inherent constraints of single-event rules—capturing high-entropy credential harvesting redirects, rare or sideloaded extension adoption across the fleet, low-and-slow session/clipboard exfiltration, automated extension C2 beaconing, and multi-user campaign rollouts.
 
-### Complementary Detection Layers
+### Complementary Detection Layers (3-Wave `A -> UDM -> B` & Capstone Architecture)
 * **Curated Detections (Real-Time Deterministic & Single-Stage Layer)**: Provide immediate, low-latency alerting on high-confidence indicators, explicit attack syntax, and single-stage threshold breaches.
-* **Multi-Stage UEBA & Statistical Hunting Harness (Cyclical Behavioral Layer)**: Extends coverage beyond the built-in window and observation constraints of single-stage rules through two architectural patterns executed by `PlaybookRunner` in `agentic-ueba`:
-  1. **Option 1 — In-DAG Piecewise Cold-Start & Mature Baseline Unification**: Evaluates both newly active or dormant entities (`active_days <= 4` via a **Two-Part Zero-Inflated Hurdle** branch) and established entities (`active_days >= 5` via a **30-Day Parametric Z-Score** or **4-Stage Non-Parametric Median Absolute Deviation (MAD)** branch) inside a single unified YARA-L 2.0 query.
-  2. **Option 3 — UDM Loopback Connective Tissue & Run-Scoped Capstone Convergence**: Every upstream query match is ingested back into Chronicle as a structured `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` UDM event stamped with the execution cycle's unique `run_id` (`metadata.product_log_id`). Before the **Capstone Query** executes, `PlaybookRunner` validates via a read-after-write UDM search barrier (`verify_udm_run_indexed()`) that all upstream events are indexed, and then correlates entities exhibiting multi-scenario convergence ($\sum Z_i^2 \ge 25.0$).
+* **Multi-Stage UEBA & Statistical Hunting Harness (Cyclical 3-Wave Layer)**: Extends coverage beyond the built-in window and observation constraints of single-stage rules through a **3-Wave Execution Pipeline** orchestrated by `PlaybookRunner` in `agentic-ueba`:
+  1. **Wave 1 — Consolidated Single-Shot Queries & Parallel Pairs (`Option 1` Piecewise Cold-Start + 30d Baselines)**: Executes all `by 1d` `metrics.*` baselines, inline Piecewise Cold-Start/Mature unified queries (`active_days <= 4` Hurdle vs. `active_days >= 5` 30-day Z-Score/MAD), and tightly pre-filtered statistical hunter queries concurrently. Every match is ingested into Chronicle UDM as a `GENERIC_EVENT` (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`) stamped with the cycle's unique `run_id` (`metadata.product_log_id`) and hierarchical rule tag (`:q[0-9]+_query_Xa`).
+  2. **Wave 2 — Serial `A -> UDM -> B` Candidate-Gated Queries (`Option 3` Stage B Loopback)**: After `PlaybookRunner` flushes Wave 1 findings and verifies indexing via `verify_udm_run_indexed()`, Wave 2 `Query XB` queries read `Query XA`'s candidate entities in Stage 1 (`re.regex(security_result.rule_name, `:q[0-9]+_query_Xa`)`) to bound sub-day (`by 1h`) raw cadence, dispersion, and shrinkage calculations without risking 1M-row enterprise scan caps.
+  3. **Wave 3 — Unified 3-Stage Capstone Convergence & Raw Telemetry Forensic Bridge (`Query 10`)**: Unions all upstream scenario tags (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-9]`)`), deduplicates per scenario in Stage 1, computes cross-scenario Euclidean L2 convergence (`$distinct_scenarios_matched >= 2` and `$capstone_threat_norm_sq >= 18.0`) in Stage 2, and pivots winning entities directly into raw endpoint, network, and cloud telemetry in Stage 3.
 
 ### Table 1: Scenario Coverage Matrix — Chrome Enterprise Premium Threats & Complementary UEBA Analytics
 
@@ -68,6 +69,7 @@ stage url_feature_extraction {
   outcome:
     $execution_count = count(metadata.id)
     $raw_len = max(strings.length($url))
+    $safe_len = if($raw_len > 0, $raw_len, 1)
 
     // Character-class counts via regex replacement length deltas (bracket-free RE2 syntax for AST compliance)
     $len_no_lower = max(strings.length(re.replace($url, `a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z`, "")))
@@ -79,6 +81,11 @@ stage url_feature_extraction {
     $c_digit = $raw_len - $len_no_digit
     $c_other_raw = $raw_len - ($c_lower + $c_upper + $c_digit)
     $c_other = if($c_other_raw > 0, $c_other_raw, 0)
+
+    $p_lower = ($c_lower + 0.01) / ($safe_len + 0.04)
+    $p_upper = ($c_upper + 0.01) / ($safe_len + 0.04)
+    $p_digit = ($c_digit + 0.01) / ($safe_len + 0.04)
+    $p_other = ($c_other + 0.01) / ($safe_len + 0.04)
 }
 
 // Stage 2: Enterprise fleet prevalence of each distinct URL across users
@@ -103,34 +110,15 @@ match:
 outcome:
   $exec_count = max($url_feature_extraction.execution_count)
   $len = max($url_feature_extraction.raw_len)
-  $safe_len = if($len > 0, $len, 1)
+  $p_lower = max($url_feature_extraction.p_lower)
+  $p_upper = max($url_feature_extraction.p_upper)
+  $p_digit = max($url_feature_extraction.p_digit)
+  $p_other = max($url_feature_extraction.p_other)
 
-  $n_lower = max($url_feature_extraction.c_lower)
-  $n_upper = max($url_feature_extraction.c_upper)
-  $n_digit = max($url_feature_extraction.c_digit)
-  $n_other = max($url_feature_extraction.c_other)
-
-  // Empirical probability per character class (pre-computed for if() compliance)
-  $raw_p_lower = $n_lower / $safe_len
-  $raw_p_upper = $n_upper / $safe_len
-  $raw_p_digit = $n_digit / $safe_len
-  $raw_p_other = $n_other / $safe_len
-
-  $p_lower = if($n_lower > 0, $raw_p_lower, 0.0001)
-  $p_upper = if($n_upper > 0, $raw_p_upper, 0.0001)
-  $p_digit = if($n_digit > 0, $raw_p_digit, 0.0001)
-  $p_other = if($n_other > 0, $raw_p_other, 0.0001)
-
-  // Shannon Entropy H = -sum(p_i * log2(p_i)) scaled to byte-entropy equivalent (0.0 to 5.0)
-  $raw_h_lower = (0.0 - $p_lower) * (math.log($p_lower) / 0.693147)
-  $raw_h_upper = (0.0 - $p_upper) * (math.log($p_upper) / 0.693147)
-  $raw_h_digit = (0.0 - $p_digit) * (math.log($p_digit) / 0.693147)
-  $raw_h_other = (0.0 - $p_other) * (math.log($p_other) / 0.693147)
-
-  $h_lower = if($n_lower > 0, $raw_h_lower, 0.0)
-  $h_upper = if($n_upper > 0, $raw_h_upper, 0.0)
-  $h_digit = if($n_digit > 0, $raw_h_digit, 0.0)
-  $h_other = if($n_other > 0, $raw_h_other, 0.0)
+  $h_lower = (0.0 - $p_lower) * (math.log($p_lower) / 0.693147)
+  $h_upper = (0.0 - $p_upper) * (math.log($p_upper) / 0.693147)
+  $h_digit = (0.0 - $p_digit) * (math.log($p_digit) / 0.693147)
+  $h_other = (0.0 - $p_other) * (math.log($p_other) / 0.693147)
 
   $class_entropy = $h_lower + $h_upper + $h_digit + $h_other
   $length_bonus = if($len >= 120, 0.5, 0.0)
@@ -481,25 +469,38 @@ order:
   $fano_factor desc
 ```
 
-#### Query 3B: Empirical Bayes Gamma-Poisson Credibility Shrinkage on Extension Surveillance (`secops-statistical-hunter`)
-Uses Method-of-Moments Gamma prior estimation ($\alpha_0 = \mu^2/\sigma^2, \beta_0 = \mu/\sigma^2$) so that noisy, erratic SSO extensions are shrunk toward their prior mean while a sudden spike in cookie or screenshot API calls on a normally predictable endpoint triggers a high posterior belief shift ($\text{anomaly\_score} \ge 3.0$).
+#### Query 3B: 4-Stage UDM-Gated Empirical Bayes Gamma-Poisson Shrinkage on Chrome Extension API Velocity (`secops-statistical-hunter`)
+Evaluates hourly Chrome Extension API and content-transfer velocity via **Poisson-Gamma Bayesian Conjugate Updating** strictly on candidate users/endpoints surfaced by `Query 3A` via UDM Loopback (`re.regex(security_result.rule_name, `:q[0-9]+_query_3a`)`).
 
 ```yara
 // ============================================================================
-// Goal: Suppress noisy enterprise SSO/productivity extension false positives while detecting true surges in cookie harvesting or tab screenshots via Bayesian shrinkage.
-// Target Telemetry: UDM_EVENTS (extensionTelemetryEvent: COOKIES_GET_ALL_INFO and TABS_API_INFO)
-// Statistical Model: Poisson-Gamma Bayesian Conjugate Updating & Credibility Weighting
+// ARCHITECTURE: 4-STAGE UDM-GATED EMPIRICAL BAYES GAMMA-POISSON SHRINKAGE PIPELINE
+// Goal: Detect abnormal Chrome extension API & content-transfer surges on candidate entities from Query 3A (strictly gated by Query 3A UDM Loopback candidates).
+// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson-Gamma Bayesian Conjugate Updating
 // ============================================================================
 
-// Stage 1: Hourly surveillance API volume per host
+stage stage1_upstream_3a_candidates {
+    metadata.event_type = "GENERIC_EVENT"
+    metadata.vendor_name = "Google SecOps"
+    metadata.product_name = "SecOps Risk Metrics Hunter"
+    metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"
+    metadata.product_log_id = $run_id
+    re.regex(security_result.rule_name, `:q[0-9]+_query_3a`)
+    $host = strings.coalesce(principal.user.userid, principal.asset.hostname, principal.hostname, principal.ip[0])
+    $host != ""
+    $run_id != ""
+
+  match:
+    $host
+
+  outcome:
+    $upstream_3a_z = max(security_result.confidence_score)
+}
+
 stage host_hourly_activity {
     metadata.product_name = "Chrome Browser Cloud Management"
-    metadata.product_event_type = "extensionTelemetryEvent"
-    (
-      target.resource.name = "COOKIES_GET_ALL_INFO"
-      or target.resource.name = "TABS_API_INFO"
-    )
-    principal.asset.hostname = $host
+    (metadata.event_type = "GENERIC_EVENT" or metadata.event_type = "USER_RESOURCE_ACCESS")
+    $host = strings.coalesce(principal.user.userid, principal.asset.hostname, principal.hostname, principal.ip[0])
     $host != ""
 
   match:
@@ -507,10 +508,9 @@ stage host_hourly_activity {
 
   outcome:
     $hourly_count = count(metadata.id)
-    $distinct_exts = count_distinct(target.resource.product_object_id)
+    $distinct_exts = count_distinct(metadata.product_event_type)
 }
 
-// Stage 2: Historical Parameter Estimation (Method of Moments Gamma Prior)
 stage host_prior_stats {
     $host = $host_hourly_activity.host
 
@@ -523,52 +523,40 @@ stage host_prior_stats {
     $active_hours = count($host_hourly_activity.window_start)
 }
 
-// Stage 3: Organizational Peer Prevalence Baseline per window
-stage fleet_context {
-    $ws = $host_hourly_activity.window_start
-
-  match:
-    $ws by 1h
-
-  outcome:
-    $fleet_hosts = count_distinct($host_hourly_activity.host)
-}
-
-// Root Stage: Bayesian Conjugate Updating & Credibility Scoring
+$host = $stage1_upstream_3a_candidates.host
 $host = $host_hourly_activity.host
 $host = $host_prior_stats.host
 $ws = $host_hourly_activity.window_start
-$ws = $fleet_context.ws
 
 match:
   $host, $ws by 1h
 
 outcome:
-  // 6 Standardized Evidence Pillars
+  $upstream_z = max($stage1_upstream_3a_candidates.upstream_3a_z)
   $observation_count = max($host_hourly_activity.hourly_count)
   $baseline_active_samples = max($host_prior_stats.active_hours)
   $baseline_mean = max($host_prior_stats.hist_mean)
   $baseline_dispersion = max($host_prior_stats.hist_stddev)
-  $fleet_prevalence = max($fleet_context.fleet_hosts)
+  $fleet_prevalence = 1
   $distinct_binaries = max($host_hourly_activity.distinct_exts)
 
-  // Method-of-Moments Gamma prior (alpha_0 = mu^2 / sigma^2, beta_0 = mu / sigma^2)
   $variance = max($host_prior_stats.hist_stddev) * max($host_prior_stats.hist_stddev)
   $safe_var = if($variance > 0, $variance, 1.0)
-  $beta_prior = max($host_prior_stats.hist_mean) / $safe_var
-  $alpha_prior = (max($host_prior_stats.hist_mean) * max($host_prior_stats.hist_mean)) / $safe_var
-  $posterior_arrival_rate = ($alpha_prior + max($host_hourly_activity.hourly_count)) / ($beta_prior + 1.0)
-  $safe_hist_mean = if(max($host_prior_stats.hist_mean) > 0, max($host_prior_stats.hist_mean), 1.0)
-  $anomaly_score = $posterior_arrival_rate / $safe_hist_mean
-  $z_score = $anomaly_score
+  $alpha_0 = (max($host_prior_stats.hist_mean) * max($host_prior_stats.hist_mean)) / $safe_var
+  $beta_0 = max($host_prior_stats.hist_mean) / $safe_var
+  $credibility_z = $baseline_active_samples / ($baseline_active_samples + $beta_0 + 1.0)
+  $posterior_rate = ($alpha_0 + $observation_count) / ($beta_0 + 1.0)
+  $safe_mean = if($baseline_mean > 0, $baseline_mean, 1.0)
+  $gamma_shrinkage_score = ($posterior_rate / $safe_mean) * (1.0 + $credibility_z)
+  $z_score = $gamma_shrinkage_score
 
 condition:
-  $baseline_active_samples >= 4
-  and $observation_count >= 10
-  and $anomaly_score >= 3.0
+  $baseline_active_samples >= 2
+  and $observation_count >= 8
+  and $gamma_shrinkage_score >= 3.5
 
 order:
-  $anomaly_score desc
+  $gamma_shrinkage_score desc
 ```
 
 ---
@@ -580,101 +568,7 @@ order:
 * **Curated Detection Operational Focus**: Alerts on browser connections to known C2 indicators and suspicious external endpoints.
 * **How Multi-Stage UEBA Extends Coverage**: Computes inter-arrival jitter Coefficient of Variation ($\text{CV} \le 0.20$) to identify robotic extension callback timers and weights 30-day outbound HTTP volume by event-relative WHOIS domain registration age.
 
-#### Query 4A: Inter-Arrival Jitter Coefficient of Variation ($\text{CV} \le 0.20$) on Extension Remote Callbacks (`secops-statistical-hunter`)
-Detects automated background service-worker C2 beaconing (`setInterval` / `chrome.alarms`) from Chrome extensions to low-prevalence external hosts ($\le 3$ endpoints in the fleet) regardless of TLD or domain age.
-
-```yara
-// ============================================================================
-// Goal: Detect periodic Chrome extension C2 beaconing (with sleep jitter) to low-prevalence external hosts regardless of TLD or domain age.
-// Target Telemetry: UDM_EVENTS (extensionTelemetryEvent: REMOTE_HOST_CONTACTED_INFO)
-// Statistical Model: Inter-Arrival Jitter via Coefficient of Variation (CV = σ / μ <= 0.20) & Fleet Prevalence Filter
-// ============================================================================
-
-// Stage 1: Hourly callback intervals per (host, remote_url) pair for extension network contacts
-stage ext_host_intervals {
-    metadata.product_name = "Chrome Browser Cloud Management"
-    metadata.product_event_type = "extensionTelemetryEvent"
-    target.resource.name = "REMOTE_HOST_CONTACTED_INFO"
-    additional.fields["contacted_by"] = "EXTENSION"
-    principal.asset.hostname = $src_host
-    $src_host != ""
-    target.url = $dst_url
-    $dst_url != ""
-    $ts = metadata.event_timestamp.seconds
-
-  match:
-    $src_host, $dst_url by 1h
-
-  outcome:
-    $first_seen = min($ts)
-    $last_seen = max($ts)
-    $conn_count = count(metadata.id)
-    $avg_gap = (max($ts) - min($ts)) / (count(metadata.id) + 1.0)
-    $distinct_exts = count_distinct(target.resource.product_object_id)
-}
-
-// Stage 2: Aggregate historical inter-arrival timing stats across active hours
-stage timing_stats {
-    $src_host = $ext_host_intervals.src_host
-    $dst_url = $ext_host_intervals.dst_url
-
-  match:
-    $src_host, $dst_url
-
-  outcome:
-    $mean_gap = avg($ext_host_intervals.avg_gap)
-    $stddev_gap = stddev($ext_host_intervals.avg_gap)
-    $total_conns = sum($ext_host_intervals.conn_count)
-    $active_hours = count($ext_host_intervals.window_start)
-    $max_exts = max($ext_host_intervals.distinct_exts)
-}
-
-// Stage 3: Enterprise-wide host prevalence of the contacted remote URL
-stage dst_prevalence {
-    $dst_url = $ext_host_intervals.dst_url
-
-  match:
-    $dst_url
-
-  outcome:
-    $src_breadth = count_distinct($ext_host_intervals.src_host)
-}
-
-// Root Stage: Compute Coefficient of Variation (CV = σ / μ) and emit 6 Core Evidence Pillars
-$src_host = $timing_stats.src_host
-$dst_url = $timing_stats.dst_url
-$dst_url = $dst_prevalence.dst_url
-
-match:
-  $src_host, $dst_url
-
-outcome:
-  // 6 Core Evidence Pillars
-  $observation_count = max($timing_stats.total_conns)
-  $baseline_active_samples = max($timing_stats.active_hours)
-  $baseline_mean = max($timing_stats.mean_gap)
-  $baseline_dispersion = max($timing_stats.stddev_gap)
-  $fleet_prevalence = max($dst_prevalence.src_breadth)
-  $distinct_binaries = max($timing_stats.max_exts)
-
-  // Coefficient of Variation (CV = σ / μ)
-  $raw_mean = max($timing_stats.mean_gap)
-  $safe_mean = if($raw_mean > 0, $raw_mean, 1.0)
-  $raw_stddev = max($timing_stats.stddev_gap)
-  $cv = $raw_stddev / $safe_mean
-
-condition:
-  $baseline_active_samples >= 4
-  and $observation_count >= 20
-  and $baseline_mean >= 1.0
-  and $fleet_prevalence <= 3
-  and $cv <= 0.20
-
-order:
-  $cv asc
-```
-
-#### Query 4B: Hybrid 30-Day HTTP Volume Baseline + 10-Day Entity Context Graph Domain Prevalence (`secops-risk-metrics-multistage`)
+#### Query 4A: Hybrid 30-Day HTTP Volume Baseline + 10-Day Entity Context Graph Domain Prevalence (`secops-risk-metrics-multistage`)
 Replaces the brittle 12-hour `first_seen_time` cliff with `DERIVED_CONTEXT` **10-day rolling organizational prevalence** (`rolling_max <= 3`) fused with the endpoint's 30-day `metrics.http_queries_total` baseline. Even if an attacker ages a domain for weeks, as long as it is only contacted by $\le 3$ hosts in the organization and drives an HTTP surge on the endpoint, this pipeline catches it.
 
 ```yara
@@ -748,6 +642,100 @@ condition:
 
 order:
   $fused_threat_score desc
+```
+
+#### Query 4B: 4-Stage UDM-Gated Inter-Arrival Jitter Coefficient of Variation on Browser & Extension Callbacks (`secops-statistical-hunter`)
+Evaluates quasi-periodic browser/extension C2 callback pacing ($\text{CV} = \sigma / \mu \le 0.25$) over hourly `NETWORK_CONNECTION` intervals strictly on candidate endpoints surfaced by `Query 4A` via UDM Loopback (`re.regex(security_result.rule_name, `:q[0-9]+_query_4a`)`).
+
+```yara
+// ============================================================================
+// ARCHITECTURE: 4-STAGE UDM-GATED INTER-ARRIVAL JITTER COEFFICIENT OF VARIATION PIPELINE
+// Goal: Detect automated Chrome extension C2 beaconing (CV <= 0.25) on candidate hosts from Query 4A (strictly gated by Query 4A UDM Loopback candidates).
+// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Coefficient of Variation (CV = sigma / mu <= 0.25)
+// ============================================================================
+
+stage stage1_upstream_4a_candidates {
+    metadata.event_type = "GENERIC_EVENT"
+    metadata.vendor_name = "Google SecOps"
+    metadata.product_name = "SecOps Risk Metrics Hunter"
+    metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"
+    metadata.product_log_id = $run_id
+    re.regex(security_result.rule_name, `:q[0-9]+_query_4a`)
+    $host = strings.coalesce(principal.asset.hostname, principal.hostname, principal.ip[0])
+    $host != ""
+    $run_id != ""
+
+  match:
+    $host
+
+  outcome:
+    $upstream_4a_z = max(security_result.confidence_score)
+}
+
+stage host_intervals {
+    metadata.event_type = "NETWORK_CONNECTION"
+    network.sent_bytes > 128
+    target.ip = $target_ip
+    $host = strings.coalesce(principal.asset.hostname, principal.hostname, principal.asset.ip[0], principal.ip[0])
+    $host != ""
+    $target_ip != ""
+    not net.ip_in_range_cidr($target_ip, "10.0.0.0/8")
+    not net.ip_in_range_cidr($target_ip, "172.16.0.0/12")
+    not net.ip_in_range_cidr($target_ip, "192.168.0.0/16")
+    $ts = metadata.event_timestamp.seconds
+
+  match:
+    $host, $target_ip by 1h
+
+  outcome:
+    $conn_count = count(metadata.id)
+    $avg_gap = (max($ts) - min($ts)) / (count(metadata.id) + 1.0)
+    $hourly_sent = sum(network.sent_bytes)
+}
+
+stage timing_stats {
+    $host = $host_intervals.host
+    $target_ip = $host_intervals.target_ip
+
+  match:
+    $host, $target_ip
+
+  outcome:
+    $mean_gap = avg($host_intervals.avg_gap)
+    $stddev_gap = stddev($host_intervals.avg_gap)
+    $total_conns = sum($host_intervals.conn_count)
+    $total_sent_bytes = sum($host_intervals.hourly_sent)
+    $active_hours = count($host_intervals.window_start)
+}
+
+$host = $stage1_upstream_4a_candidates.host
+$host = $timing_stats.host
+$target_ip = $timing_stats.target_ip
+
+match:
+  $host, $target_ip
+
+outcome:
+  $upstream_z = max($stage1_upstream_4a_candidates.upstream_4a_z)
+  $observation_count = max($timing_stats.total_conns)
+  $baseline_active_samples = max($timing_stats.active_hours)
+  $baseline_mean = max($timing_stats.mean_gap)
+  $baseline_dispersion = max($timing_stats.stddev_gap)
+  $fleet_prevalence = 1
+  $distinct_binaries = max($timing_stats.total_conns)
+  $total_outbound_bytes = max($timing_stats.total_sent_bytes)
+
+  $safe_mean = if($baseline_mean > 0, $baseline_mean, 1.0)
+  $cv = $baseline_dispersion / $safe_mean
+
+condition:
+  $baseline_active_samples >= 3
+  and $observation_count >= 20
+  and $baseline_mean >= 2.0
+  and $cv <= 0.25
+
+order:
+  $cv asc
 ```
 
 ---
@@ -1758,133 +1746,115 @@ order:
 * **Curated Detection Operational Focus**: Individual scenario alerts evaluated independently within their respective telemetry domains.
 * **How Multi-Stage UEBA Extends Coverage**: Correlates users and hosts matching $\ge 2$ distinct browser hunting scenarios within the same run (`Option 3` UDM Loopback `PLAYBOOK_BEHAVIORAL_HUNT_MATCH`) using an $L_2$ Euclidean risk norm ($\sum Z_i^2 \ge 25.0$).
 
-#### Capstone Query: Multi-Scenario Chrome Endpoint & User Convergence via UDM Loopback (`secops-risk-metrics-multistage` + `PlaybookRunner`)
+### Scenario 10: Unified 3-Stage Capstone Multi-Scenario Convergence & Raw Telemetry Forensic Bridge (`Option 3` Cross-Query Connective Tissue)
+
+Individual behavioral queries in Scenarios 1–9 frequently fire inside ambiguous overlap regimes when evaluated in isolation. Furthermore, 30-day `metrics.*` stages aggregate away raw forensic artifacts such as full process paths or specific cloud/web resource names.
+
+**Scenario 10 (`Query 10`)** executes in **Wave 3** after all **Wave 1** (upstream `by 1d` and pre-filtered queries) and **Wave 2** (inline UDM-gated `Query XB` Stage B queries) have exported their findings into Chronicle's unified `GENERIC_EVENT` UDM stream (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`):
+1. **Regex Union Token Matching Across All 9 Scenarios (`stage1_per_scenario_dedup`)**: Matches `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` events for the active `$run_id` using a single hierarchical regex union (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-9]`)`) and deduplicates by `$entity, $scenario_tag`.
+2. **Multi-Scenario Euclidean L2 Rollup (`stage2_multi_scenario_rollup`)**: Aggregates across Stage 1 by `$entity`, counting distinct scenario tags (`$distinct_scenarios_matched >= 2`) and summing their squared Z-scores (`$capstone_threat_norm_sq >= 18.0`).
+3. **Raw Telemetry Forensic Pivot (`stage3_raw_forensic_pivot` & Root Join)**: Simultaneously aggregates raw telemetry (`PROCESS_LAUNCH`, `NETWORK_CONNECTION`, `RESOURCE_READ`, `USER_RESOURCE_ACCESS`, `USER_LOGIN`) by `$entity` and joins it with Stage 2 in Root to deliver both the cross-scenario Euclidean L2 convergence score and concrete raw forensic artifacts in a single query.
+
+#### Query 10: 3-Stage Unified Capstone Multi-Scenario Convergence & Raw Telemetry Forensic Bridge (`secops-statistical-hunter`)
 
 ```yara
 // ============================================================================
-// Goal: Correlate Chrome Enterprise endpoints and users matching >= 2 distinct behavioral queries across Scenarios 1-9 via PlaybookRunner's native UDM loopback (PLAYBOOK_BEHAVIORAL_HUNT_MATCH).
-// Target Telemetry: UDM_EVENTS (GENERIC_EVENT with metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH")
-// Statistical Model: 2-Stage Cross-Scenario Euclidean L2 Norm Convergence (sum(Z_i^2) >= 25.0 across >= 2 distinct queries)
+// ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
+// Goal: Deduplicate and roll up normalized UEBA hunt matches across all 9 Chrome Enterprise Premium scenarios (1 through 9B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
+// Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
+// Skill: secops-statistical-hunter
 // ============================================================================
 
-// Stage 1: Deduplicate peak effective Z-score, CRI, and Run ID per (entity, rule_name) over 1d
-stage stage1_query_hits {
+stage stage1_per_scenario_dedup {
     metadata.event_type = "GENERIC_EVENT"
     metadata.vendor_name = "Google SecOps"
     metadata.product_name = "SecOps Risk Metrics Hunter"
     metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"
     metadata.product_log_id = $run_id
-    principal.asset.hostname = $entity
-    security_result.rule_name = $rule_name
+    re.regex(security_result.rule_name, `:q[0-9]+_query_[1-9]`)
+    $scenario_tag = security_result.rule_name
+    $entity = strings.coalesce(principal.user.userid, principal.asset.hostname, principal.ip[0])
     $entity != ""
-    $rule_name != ""
     $run_id != ""
-    $rule_name != "chrome-enterprise-premium-ueba-hunting:capstone_cross_query_convergence"
 
   match:
-    $entity, $rule_name by 1d
+    $entity, $scenario_tag
 
   outcome:
-    $query_z = max(security_result.confidence_score)
-    $query_cri = max(security_result.risk_score)
-    $threat_scenario = array_distinct(security_result.threat_name)
-    $latest_run_id = max(metadata.product_log_id)
+    $scenario_z = max(security_result.confidence_score)
+    $scenario_cri = max(security_result.risk_score)
+    $scenario_z_sq = max(security_result.confidence_score) * max(security_result.confidence_score)
+    $scenario_hits = count(metadata.id)
+    $run_ids = array_distinct(metadata.product_log_id)
 }
 
-// Root Stage: Cross-Scenario Entity Roll-Up & Euclidean L2 Norm Scoring
-$entity = $stage1_query_hits.entity
-$day_bucket = $stage1_query_hits.window_start
+stage stage2_multi_scenario_rollup {
+    $entity = $stage1_per_scenario_dedup.entity
+
+  match:
+    $entity
+
+  outcome:
+    $distinct_scenarios_matched = count_distinct($stage1_per_scenario_dedup.scenario_tag)
+    $matched_scenario_tags = array_distinct($stage1_per_scenario_dedup.scenario_tag)
+    $correlated_run_ids = array_distinct($stage1_per_scenario_dedup.run_ids)
+    $total_loopback_matches = sum($stage1_per_scenario_dedup.scenario_hits)
+    $peak_scenario_z = max($stage1_per_scenario_dedup.scenario_z)
+    $peak_scenario_cri = max($stage1_per_scenario_dedup.scenario_cri)
+    $capstone_threat_norm_sq = sum($stage1_per_scenario_dedup.scenario_z_sq)
+}
+
+stage stage3_raw_forensic_pivot {
+    (
+        metadata.event_type = "PROCESS_LAUNCH" or
+        metadata.event_type = "NETWORK_CONNECTION" or
+        metadata.event_type = "RESOURCE_READ" or
+        metadata.event_type = "USER_RESOURCE_ACCESS" or
+        metadata.event_type = "USER_LOGIN"
+    )
+    $entity = strings.coalesce(principal.user.userid, principal.asset.hostname, principal.ip[0])
+    $entity != ""
+
+  match:
+    $entity
+
+  outcome:
+    $raw_event_count = count(metadata.id)
+    $distinct_event_types = count_distinct(metadata.event_type)
+    $sample_processes = array_distinct(target.process.file.full_path)
+    $sample_resources = array_distinct(target.resource.name)
+    $total_sent_bytes = sum(network.sent_bytes)
+}
+
+$entity = $stage2_multi_scenario_rollup.entity
+$entity = $stage3_raw_forensic_pivot.entity
 
 match:
-  $entity, $day_bucket by 1d
+  $entity
 
 outcome:
-  $distinct_queries = count_distinct($stage1_query_hits.rule_name)
-  $triggered_queries = array_distinct($stage1_query_hits.rule_name)
-  $triggered_scenarios = array_distinct($stage1_query_hits.threat_scenario)
-  $correlated_run_ids = array_distinct($stage1_query_hits.latest_run_id)
-  $latest_run_id = max($stage1_query_hits.latest_run_id)
-  $max_single_query_z = max($stage1_query_hits.query_z)
-  $max_single_cri = max($stage1_query_hits.query_cri)
+  $distinct_scenarios_matched = max($stage2_multi_scenario_rollup.distinct_scenarios_matched)
+  $matched_scenario_tags = array_distinct($stage2_multi_scenario_rollup.matched_scenario_tags)
+  $correlated_run_ids = array_distinct($stage2_multi_scenario_rollup.correlated_run_ids)
+  $total_loopback_matches = max($stage2_multi_scenario_rollup.total_loopback_matches)
+  $peak_scenario_z = max($stage2_multi_scenario_rollup.peak_scenario_z)
+  $peak_scenario_cri = max($stage2_multi_scenario_rollup.peak_scenario_cri)
+  $capstone_threat_norm_sq = max($stage2_multi_scenario_rollup.capstone_threat_norm_sq)
+  $capstone_threat_score = math.sqrt($capstone_threat_norm_sq)
 
-  // Euclidean L2 Norm Squared across all distinct matched queries: D^2 = sum(Z_i^2)
-  $capstone_threat_norm_sq = sum($stage1_query_hits.query_z * $stage1_query_hits.query_z)
+  $raw_event_count = max($stage3_raw_forensic_pivot.raw_event_count)
+  $distinct_event_types = max($stage3_raw_forensic_pivot.distinct_event_types)
+  $sample_processes = array_distinct($stage3_raw_forensic_pivot.sample_processes)
+  $sample_resources = array_distinct($stage3_raw_forensic_pivot.sample_resources)
+  $total_sent_bytes = max($stage3_raw_forensic_pivot.total_sent_bytes)
+
+  $unified_threat_score = $capstone_threat_score + math.log($raw_event_count + 1)
 
 condition:
-  $distinct_queries >= 2
-  and $capstone_threat_norm_sq >= 25.0
+  $distinct_scenarios_matched >= 2
+  and $capstone_threat_norm_sq >= 18.0
+  and $raw_event_count >= 1
 
 order:
-  $capstone_threat_norm_sq desc
+  $unified_threat_score desc
 ```
-
----
-
----
-
-## 3. Appendix: A Practitioner's Plain-English Guide to the Statistical Models & Connective Tissue
-
-### 3.1 Shannon Character-Class Entropy ($H(X)$ — Query 1A)
-* **What it measures**: How mixed and unpredictable the characters inside a URL are across lowercase letters, uppercase letters, numbers, and symbols.
-* **How multi-stage UEBA extends coverage**: Static rules look for literal `@` or `%40` email strings in phishing URLs. Attackers bypass this by Base64- or Hex-encoding the victim's email address in the URL.
-* **How the math works**: Human-readable URLs (`/login/account/profile`) consist almost entirely of lowercase letters and slashes, yielding low entropy. Base64-encoded session tokens and encrypted AitM parameters mix uppercase, lowercase, digits, and delimiters evenly, driving $H(X) = -\sum p_i \log_2 p_i$ above `3.8` bits/character.
-
-### 3.2 Zipfian Power-Law Rarity & Inverse Document Frequency (IDF — Query 2A)
-* **What it measures**: How rare a Chrome extension is across the entire fleet (`adopter_hosts`) combined with how aggressively it executes on a single workstation (`local_intensity`).
-* **How multi-stage UEBA extends coverage**: curated detection rules accidentally counts *events* instead of *hosts* (`$ext_count < 3`), suppressing any sideloaded extension that emits 3 or more telemetry events per hour.
-* **How the math works**: By computing $\ln(N_{\text{total\_hosts}} / N_{\text{adopter\_hosts}}) + \ln(\text{exec\_count} + 1)$ across two stages, an extension installed on only 1 or 2 workstations that generates hundreds of API events rises to the very top of the hunt queue instead of suppressing itself.
-
-### 3.3 Two-Part Zero-Inflated Hurdle Model (Query 2B)
-* **What it measures**: First, whether an extension is rarely active on a host (Part 1: Bernoulli hurdle crossing, $\le 2$ active days); second, how large today's burst is compared to its active days (Part 2: positive-activity Z-score).
-* **How multi-stage UEBA extends coverage**: Legitimate extensions installed from the Chrome Web Store that are later compromised via a malicious update have `extension_source = "WEBSTORE"` and bypass sideloading rules.
-* **How the math works**: Separating *presence* from *magnitude* prevents zero-inflation distortion and amplifies dormant or newly installed extensions that suddenly wake up and execute a high-volume burst.
-
-### 3.4 Poisson Dispersion & Fano Factor ($F = \sigma^2 / \mu$ — Query 3A)
-* **What it measures**: How "clumpy" or bursty an extension's API calls (`COOKIES_GET_ALL_INFO`, `CAPTURE_VISIBLE_TAB`) are across hourly windows.
-* **How multi-stage UEBA extends coverage**: Alerting on `$event_count = 1` triggers on every routine SSO check or single user screenshot.
-* **How the math works**: Steady background processes follow a Poisson process where variance equals the mean ($F = \sigma^2 / \mu \approx 1.0$). When an infostealer extension harvests all browser cookies or captures rapid-fire tab screenshots during a user's banking/cloud session, the variance explodes relative to the 24-hour mean ($F \ge 4.0$).
-
-### 3.5 Empirical Bayes Gamma-Poisson Credibility Shrinkage (Query 3B)
-* **What it measures**: The ratio of a host's posterior arrival rate to its historical mean, weighted by how stable that host's history is.
-* **How multi-stage UEBA extends coverage**: Noisy developer laptops with dozens of extensions generate erratic telemetry spikes that fool standard Z-scores.
-* **How the math works**: Method-of-Moments estimates a Gamma prior ($\alpha_0 = \mu^2/\sigma^2, \beta_0 = \mu/\sigma^2$). Erratic hosts have high variance ($\sigma^2 \gg \mu$), shrinking their credibility weight, whereas a sudden spike on a rock-solid, predictable workstation produces an immediate posterior anomaly shift ($\ge 3.0\times$).
-
-### 3.6 Coefficient of Variation for C2 Beaconing Jitter ($\text{CV} = \sigma / \mu$ — Query 4A)
-* **What it measures**: The regularity of time gaps between an extension's outbound `REMOTE_HOST_CONTACTED_INFO` network callbacks.
-* **How multi-stage UEBA extends coverage**: Static TLD lists miss `.com`/`.io` C2 domains, and the 12-hour `first_seen_time` cliff misses extensions that sleep for a day before beaconing.
-* **How the math works**: Human web browsing produces erratic time gaps ($\text{CV} > 0.50$). Automated extension service-worker timers (`chrome.alarms` / `setInterval` with 15% random jitter) produce tightly clustered inter-arrival intervals where $\sigma / \mu \le 0.20$.
-
-### 3.7 Hybrid 30-Day UEBA Metrics + Entity Context Graph Prevalence & WHOIS Lifecycle (Queries 4B, 5A, 6A)
-* **What it measures**: Combines a 30-day pre-computed behavioral Z-score (`metrics.http_queries_total`, `metrics.file_executions_total`) with `DERIVED_CONTEXT` 10-day rolling organizational prevalence (`rolling_max <= 3`) or `GLOBAL_CONTEXT` WHOIS registration/expiration lifecycle.
-* **How multi-stage UEBA extends coverage**: Hardcoded 12-hour and 24-hour `first_seen_time` cutoffs fail the moment an adversary ages a domain beyond 24 hours, and `timestamp.current_seconds()` breaks historical retrohunts.
-* **How the math works**: Even if a domain was first seen 9 days ago, if $\le 3$ hosts in the entire enterprise have ever communicated with it (`rolling_max <= 3`) and the host exhibits a 30-day HTTP or process-execution anomaly, the rarity multiplier boosts the Z-score above the detection threshold.
-
-### 3.8 Markov 2-Gram Parent-to-Child Surprisal ($I = -\ln P(\text{Child} \mid \text{Parent})$ — Query 6B)
-* **What it measures**: How unexpected it is for Chrome (or a binary in `Downloads`/`Temp`) to spawn a specific child process on that endpoint.
-* **How multi-stage UEBA extends coverage**: Download rules only see the browser event, not whether the user actually ran the downloaded file or pasted a ClickFix command.
-* **How the math works**: Routine browser helper launches have $P(\text{Child} \mid \text{Parent}) \approx 1.0 \implies I \approx 0$. When `chrome.exe` or a downloaded installer spawns `powershell.exe`, `cmd.exe`, or `mshta.exe` for the first time, $P(\text{Child} \mid \text{Parent})$ is tiny and self-information surprisal $I = -\ln(P)$ spikes above `3.0`.
-
-### 3.9 Dual-Baseline Fleet-Normalized Delta-Z ($\Delta Z = Z_{\text{personal}} - \max(0, Z_{\text{fleet}})$ — Query 7A)
-* **What it measures**: How much a single endpoint's download activity surged above its own history *after subtracting any simultaneous fleet-wide surge*.
-* **How multi-stage UEBA extends coverage**: Cross-host hash matching (`$host_count > 1`) is defeated by per-victim polymorphic hashes and false-alerts on legitimate company-wide developer tool rollouts.
-* **How the math works**: During a company-wide rollout, both $Z_{\text{personal}}$ and $Z_{\text{fleet}}$ rise together, so $\Delta Z \approx 0$. During a targeted polymorphic malware campaign affecting 1–3 victims, the fleet mean stays flat ($Z_{\text{fleet}} \approx 0$) while the targeted host's $\Delta Z$ exceeds `3.0`.
-
-### 3.10 Leave-One-Out Discrete Poisson Rarity ($Z_{\text{Poisson}}^2 = (k - \lambda)^2 / \lambda$ — Query 7B)
-* **What it measures**: The improbability of observing $k \ge 2$ dangerous or unscanned downloads in a day when the user's prior 29-day arrival rate $\lambda$ is near zero ($\le 0.5\text{/day}$).
-* **How multi-stage UEBA extends coverage**: `c_chrome_multiple_suspicious_downloads_on_same_host` requires $>1$ download within a `1h` window; spacing downloads 90 minutes apart evades it.
-* **How the math works**: By aggregating over a full day and computing leave-one-out $\lambda = (\text{prior\_runs} + 0.5) / 29.0$, even 2 or 3 paced downloads across an 8-hour workday yield $Z_{\text{Poisson}}^2 \ge 9.0$.
-
-### 3.11 Non-Parametric Median Absolute Deviation (MAD / Modified Z-Score $M_Z$ — Query 8A)
-* **What it measures**: How many robust standard deviations a user's daily Chrome uploads and clipboard pastes (`text/plain` included) sit above their historical median.
-* **How multi-stage UEBA extends coverage**: Static exfiltration rules exclude `text/plain` clipboard pastes, ignore `target.url = /google/`, and only check 9 archive extensions.
-* **How the math works**: Unlike mean and standard deviation—which are corrupted by a single massive upload day—the median and MAD have a 50% breakdown point. When MAD is zero (a user who uploads exactly the same small number of items every day), the Iglewicz-Hoaglin MeanAD fallback ($1.253314 \times \text{MeanAD}$) ensures a sudden clipboard/upload exfiltration burst is still scored accurately.
-
-### 3.12 Longitudinal CUSUM Behavioral Drift ($S_t^+$ — Query 8B)
-* **What it measures**: The multi-day accumulation of small positive outbound network byte excesses ($Z_t - 0.5\sigma$) above a host's 30-day baseline.
-* **How multi-stage UEBA extends coverage**: Malicious Chrome extensions that trickle stolen data out via background `fetch()` calls keep each day's volume at $1.2\sigma\text{–}1.8\sigma$, staying underneath single-day $3\sigma$ thresholds.
-* **How the math works**: Subtracting the $0.5\sigma$ slack constant zeros out normal daily noise, while a steady $1.5\sigma$ daily exfiltration drip adds $+1.0$ to $S_t^+$ every day, crossing `cusum_drift_score >= 3.0` within 3 days.
-
-### 3.13 Multi-Sector Euclidean Risk Fusion & Multilevel Triads ($D^2 = \sum Z_i^2$ — Queries 1B, 5B, 9A, 9B)
-* **What it measures**: The combined multi-dimensional anomaly distance across two or three independent behavioral telemetry streams (e.g., Auth Failures + Auth Successes; HTTP Failures + DNS Queries; Workspace Auth + Downloads + Changes; Endpoint Alerts + Outbound Bytes).
-* **How multi-stage UEBA extends coverage**: curated detection rules requires single-stage baseline constraints, which evaluates to **false** for any dormant user with 0 prior downloads ($\mu=0, \sigma=0$), and requires a prior SafeBrowsing alert.
-* **How the math works**: Replacing single-stage baseline constraints with zero-safe variance floors (`if($std > 0, $std, 1.0)`) ensures dormant users with $\mu=0, \sigma=0$ who suddenly download 50 files achieve $Z = 50.0$ instead of being dropped. Combining rectified Z-scores across sectors via $D^2 = Z_A^2 + Z_B^2 \ge 12.25$ ($\sqrt{12.25} = 3.5\sigma$ joint radius) catches coordinated kill-chain activity even when each individual sector sits at a moderate $2.5\sigma$.
