@@ -986,6 +986,93 @@ order:
 ```
 ---
 
+---
+
+## 4. 4-Stage Raw Non-Parametric Quantiles, Bowley Skewness, Hubert–Vandervieren Fence & Fleet Prevalence (`v2.9.0`)
+
+When hunting heavy-tailed network or vendor alert surges without pre-computed `metrics.*` tables (`secops-statistical-hunter`), `iqr_tukey_skew_fences_3stage.yl2` computes `$p10, $q25, $q50, $q75, $p90` in a single `quantile_fences` stage, freeing Stage 3 (`fleet_breadth`) to compute concurrent `$fleet_prevalence`:
+
+```yara
+// Goal: 4-Stage Raw Non-Parametric Quantiles, Bowley Skewness, Hubert-Vandervieren Fence & Fleet Prevalence (secops-statistical-hunter)
+stage daily_stats {
+    metadata.event_type = "NETWORK_CONNECTION"
+    network.sent_bytes > 0
+    principal.asset.hostname = $entity
+    $entity != ""
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $daily_val = sum(network.sent_bytes)
+    $event_count = count(metadata.id)
+}
+
+stage quantile_fences {
+    $entity = $daily_stats.entity
+
+  match:
+    $entity
+
+  outcome:
+    $p10 = window.percentile($daily_stats.daily_val, 10)
+    $q25 = window.percentile($daily_stats.daily_val, 25)
+    $q50 = window.percentile($daily_stats.daily_val, 50)
+    $q75 = window.percentile($daily_stats.daily_val, 75)
+    $p90 = window.percentile($daily_stats.daily_val, 90)
+    $active_days = count($daily_stats.daily_val)
+}
+
+stage fleet_breadth {
+    $day_bucket = $daily_stats.window_start
+
+  match:
+    $day_bucket by 1d
+
+  outcome:
+    $fleet_active_entities = count_distinct($daily_stats.entity)
+}
+
+$entity = $daily_stats.entity
+$entity = $quantile_fences.entity
+$day_bucket = $daily_stats.window_start
+$day_bucket = $fleet_breadth.day_bucket
+
+match:
+  $entity, $day_bucket by 1d
+
+outcome:
+  $observed_val = max($daily_stats.daily_val)
+  $obs_events = max($daily_stats.event_count)
+  $q25_val = max($quantile_fences.q25)
+  $q50_val = max($quantile_fences.q50)
+  $q75_val = max($quantile_fences.q75)
+  $days_active = max($quantile_fences.active_days)
+  $fleet_prevalence = max($fleet_breadth.fleet_active_entities)
+
+  $iqr = $q75_val - $q25_val
+  $safe_iqr = if($iqr > 0, $iqr, 1.0)
+  $idr = max($quantile_fences.p90) - max($quantile_fences.p10)
+
+  $bowley_num = $q75_val + $q25_val - (2.0 * $q50_val)
+  $bowley_skew = $bowley_num / $safe_iqr
+  $tail_heaviness = $idr / $safe_iqr
+
+  $pos_skew = if($bowley_skew > 0, $bowley_skew, 0.0)
+  $skew_mult = math.pow(2.718281828, 3.0 * $pos_skew)
+  $adj_upper_fence = $q75_val + (1.5 * $skew_mult * $safe_iqr)
+  $safe_fence = if($adj_upper_fence > 0, $adj_upper_fence, 1.0)
+  $surge_ratio = $observed_val / $safe_fence
+
+condition:
+  $days_active >= 5 and $observed_val > $adj_upper_fence and $surge_ratio >= 2.0
+
+order:
+  $surge_ratio desc
+```
+
+---
+
 ## 📜 License
 This project is licensed under the [Apache License 2.0](LICENSE).
 ```

@@ -931,6 +931,45 @@ order:
 ```
 ---
 
+---
+
+## 4. Cross-Vendor Telemetry Ingestion-Lag & Forwarder Backpressure Quantile Audit (`window.percentile`)
+
+Before correlating third-party XDR, SASE, and IdP alerts across tight sub-hour windows (`by 5m` or `by 1h`), execute this non-parametric quantile audit over `metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds` (`$p10, $p25, $p50, $p75, $p90`). A sudden surge in `$tail_lag_spread = $p90_lag - $q50_lag` or high positive Bowley skewness (`$bowley_skew > 0.50`) warns the SOC that a cloud-to-cloud webhook or syslog forwarder is experiencing batch backpressure:
+
+```yara
+// Goal: Profile telemetry ingestion lag quantiles, Bowley skewness, and negative clock-skew / timestomp anomalies per log_type
+metadata.event_timestamp.seconds > 0
+$log_type = metadata.log_type
+$log_type != ""
+
+match:
+  $log_type by 1h
+
+outcome:
+  $event_count = count(metadata.id)
+  $p10 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 10)
+  $p25 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 25)
+  $p50 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 50)
+  $p75 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 75)
+  $p90 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 90)
+
+  $iqr = $p75 - $p25
+  $bowley_num = $p75 + $p25 - (2 * $p50)
+  $safe_iqr = if($iqr > 0, $iqr, 1.0)
+  $bowley_skew = $bowley_num / $safe_iqr
+  $idr = $p90 - $p10
+  $tail_heaviness = $idr / $safe_iqr
+
+condition:
+  $event_count >= 10 and ($p10 < 0 or $p90 >= 300 or $bowley_skew >= 0.75)
+
+order:
+  $p90 desc
+```
+
+---
+
 ## 📜 License
 This project is licensed under the [Apache License 2.0](LICENSE).
 ```

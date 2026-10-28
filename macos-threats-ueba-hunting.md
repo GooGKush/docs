@@ -866,6 +866,98 @@ order:
 ```
 ---
 
+---
+
+## 4. macOS Staged Archive Exfiltration via 1-Stage Quantile Envelope & Skewness-Adjusted Tukey Fence (`v2.2.0`)
+
+Developer macOS endpoints routinely transfer large Xcode/container artifacts that right-skew their 30-day `metrics.network_bytes_outbound` baseline ($B_{\text{skew}} > 0.25$, $T_{\text{ratio}} > 2.5$). Using `quantile_iqr_skew_3stage.yl2`, we compute the 5-point empirical quantile envelope (`$p10, $q25, $q50, $q75, $p90`), Bowley quartile skewness, and the Hubert–Vandervieren Skewness-Adjusted Tukey Upper Fence in 3 stages alongside the 30-day `metrics.*` Z-score cross-check:
+
+```yara
+// Goal: 3-Stage 1-Stage Empirical Quantiles (window.percentile), Bowley Skewness & Skew-Adjusted Tukey Fence vs 30d Metrics Z
+stage stage1_extract {
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
+    principal.asset.hostname = $host
+    $host != ""
+
+  match:
+    $host by 1d
+
+  outcome:
+    $observed_val = sum(network.sent_bytes)
+    $observed_events = count(metadata.id)
+    $in_scoring_window = max(if(timestamp.get_date(metadata.event_timestamp.seconds) >= "2026-10-21", 1, 0))
+
+    $historical_avg = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: avg,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $historical_stddev = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $historical_active_days = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+}
+
+stage quantile_envelope {
+    $host = $stage1_extract.host
+
+  match:
+    $host
+
+  outcome:
+    $p10 = window.percentile($stage1_extract.observed_val, 10)
+    $q25 = window.percentile($stage1_extract.observed_val, 25)
+    $q50 = window.percentile($stage1_extract.observed_val, 50)
+    $q75 = window.percentile($stage1_extract.observed_val, 75)
+    $p90 = window.percentile($stage1_extract.observed_val, 90)
+    $raw_active_days = count_distinct($stage1_extract.window_start)
+}
+
+$host = $stage1_extract.host
+$host = $quantile_envelope.host
+$ws = $stage1_extract.window_start
+
+match:
+  $host, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $q25_val = max($quantile_envelope.q25)
+  $q50_val = max($quantile_envelope.q50)
+  $q75_val = max($quantile_envelope.q75)
+  $raw_active_days = max($quantile_envelope.raw_active_days)
+  $in_scoring_window = max($stage1_extract.in_scoring_window)
+
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $personal_z = ($observed - $hist_avg) / $safe_stddev
+
+  $iqr = $q75_val - $q25_val
+  $q50_floor = $q50_val * 0.05 + 1.0
+  $safe_iqr = if($iqr > 0, $iqr, $q50_floor)
+  $bowley_skew = ($q75_val + $q25_val - (2.0 * $q50_val)) / $safe_iqr
+  $tail_heaviness = (max($quantile_envelope.p90) - max($quantile_envelope.p10)) / $safe_iqr
+
+  $pos_skew = if($bowley_skew > 0, $bowley_skew, 0.0)
+  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 3.0 * $pos_skew) * $safe_iqr)
+  $safe_fence = if($adj_upper_fence > 0, $adj_upper_fence, 1.0)
+  $tukey_fence_ratio = $observed / $safe_fence
+
+condition:
+  $in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_fence_ratio >= 2.0
+
+order:
+  $tukey_fence_ratio desc
+```
+
+---
+
 ## 📜 License
 This project is licensed under the [Apache License 2.0](LICENSE).
 ```

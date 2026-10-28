@@ -1097,6 +1097,107 @@ order:
 ```
 ---
 
+---
+
+## 4. Windows Event Log (`WINEVTLOG`) Delay Tampering & Staged Egress Quantile Shape (`window.percentile`)
+
+Sophisticated Windows intruders frequently (1) suspend EventLog service threads or delay forwarder flushes during credential dumping or (2) exfiltrate staged `.cab`/`.7z` archives over high-tail outbound flows (`$p90_bytes / $p50_bytes >= 10.0`).
+* **Query 5A**: Combines 30-day `metrics.network_bytes_outbound` with intra-bucket `$p50_bytes` and `$p90_bytes` (`window.percentile(network.sent_bytes, 50/90)`).
+* **Query 5B**: Audits `metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds` quantiles (`$p10, $p25, $p50, $p75, $p90`) and Bowley skewness (`$bowley_skew`) per `$log_type` to detect `WINEVTLOG` / `WINDOWS_SYSMON` buffer tampering or clock rollback (`$p10_lag < -60`).
+
+#### Query 5A: Windows Outbound Egress 30-Day Z + Intra-Bucket Per-Flow $P_{50}/P_{90}$ Shape (`secops-risk-metrics-multistage`)
+```yara
+// Goal: Combine 30-day metrics.network_bytes_outbound macro Z-score with intra-bucket per-flow P50/P90 payload quantile shape fingerprinting
+stage stage1_extract {
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
+    principal.asset.hostname = $host
+    $host != ""
+
+  match:
+    $host by 1d
+
+  outcome:
+    $observed_val = sum(network.sent_bytes)
+    $flow_count = count(metadata.id)
+    $flow_p50_bytes = window.percentile(network.sent_bytes, 50)
+    $flow_p90_bytes = window.percentile(network.sent_bytes, 90)
+    $historical_avg = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: avg,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $historical_stddev = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $historical_active_days = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+}
+
+$host = $stage1_extract.host
+$ws = $stage1_extract.window_start
+
+match:
+  $host, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $flows = max($stage1_extract.flow_count)
+  $p50_bytes = max($stage1_extract.flow_p50_bytes)
+  $p90_bytes = max($stage1_extract.flow_p90_bytes)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $personal_z = ($observed - $hist_avg) / $safe_stddev
+
+  $safe_p50 = if($p50_bytes > 0, $p50_bytes, 1.0)
+  $flow_tail_burst_ratio = $p90_bytes / $safe_p50
+
+condition:
+  $active_days >= 7 and $personal_z >= 2.0 and $flow_tail_burst_ratio >= 10.0
+
+order:
+  $flow_tail_burst_ratio desc
+```
+
+#### Query 5B: Windows Event Log Ingestion-Lag & Clock-Skew Quantile Audit (`secops-statistical-hunter`)
+```yara
+// Goal: Profile telemetry ingestion lag quantiles, Bowley skewness, and negative clock-skew / timestomp anomalies per log_type
+metadata.event_timestamp.seconds > 0
+$log_type = metadata.log_type
+$log_type != ""
+
+match:
+  $log_type by 1h
+
+outcome:
+  $event_count = count(metadata.id)
+  $p10 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 10)
+  $p25 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 25)
+  $p50 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 50)
+  $p75 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 75)
+  $p90 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 90)
+
+  $iqr = $p75 - $p25
+  $bowley_num = $p75 + $p25 - (2 * $p50)
+  $safe_iqr = if($iqr > 0, $iqr, 1.0)
+  $bowley_skew = $bowley_num / $safe_iqr
+  $idr = $p90 - $p10
+  $tail_heaviness = $idr / $safe_iqr
+
+condition:
+  $event_count >= 10 and ($p10 < 0 or $p90 >= 300 or $bowley_skew >= 0.75)
+
+order:
+  $p90 desc
+```
+
+---
+
 ## 📜 License
 This project is licensed under the [Apache License 2.0](LICENSE).
 ```

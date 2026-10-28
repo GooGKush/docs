@@ -2141,6 +2141,157 @@ order:
 ```
 ---
 
+---
+
+## 4. Non-Parametric Cloud Resource Quantiles (`window.percentile`), Bowley Skewness & Audit-Log Lag Auditing (`v2.2.0` / `v2.9.0`)
+
+In multi-cloud environments (`GCP_CLOUDAUDIT`, `AWS_CLOUDTRAIL`, `AZURE_ACTIVITY`), periodic batch jobs and Terraform runs create heavy right-skew ($B_{\text{skew}} > 0.25$) and high Moors tail-heaviness ($T_{\text{ratio}} = (P_{90} - P_{10}) / \text{IQR} > 2.5$), masking subsequent secret/storage harvesting in classical 30-day `metrics.*` Z-scores.
+* **Query 5A (`quantile_iqr_skew_3stage.yl2` on `metrics.resource_read_total`)**: Computes the 5-point quantile envelope (`$p10, $q25, $q50, $q75, $p90`), Bowley quartile skewness, and the Hubert–Vandervieren Skewness-Adjusted Tukey Fence in 3 stages per `($sa, $vendor, $product, $resource)`.
+* **Query 5B (Cloud Audit Ingestion-Lag Quantile Drift)**: Profiles `metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds` quantiles (`$p10, $p25, $p50, $p75, $p90`) and Bowley skewness (`$bowley_skew`) to detect delayed CloudTrail/audit log flushing or clock-skew anomalies before scoring short-window playbooks.
+
+#### Query 5A: 3-Stage 1-Stage Quantile Envelope & Skewness-Adjusted Tukey Fence on Cloud Resource Reads (`secops-risk-metrics-multistage`)
+```yara
+// Goal: 3-Stage 1-Stage Quantile Envelope & Skewness-Adjusted Tukey Fence on Cloud Resource Reads
+stage stage1_extract {
+    (
+        metadata.event_type = "RESOURCE_READ" or
+        metadata.event_type = "USER_RESOURCE_ACCESS"
+    )
+    principal.user.userid = $sa
+    metadata.vendor_name = $vendor
+    metadata.product_name = $product
+    target.resource.name = $resource
+    $sa != ""
+    $vendor != ""
+    $product != ""
+    $resource != ""
+
+  match:
+    $sa, $vendor, $product, $resource by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+    $in_scoring_window = max(if(timestamp.get_date(metadata.event_timestamp.seconds) >= "2026-10-21", 1, 0))
+    $historical_avg = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+    $historical_stddev = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+    $historical_active_days = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+}
+
+stage quantile_envelope {
+    $sa = $stage1_extract.sa
+    $vendor = $stage1_extract.vendor
+    $product = $stage1_extract.product
+    $resource = $stage1_extract.resource
+
+  match:
+    $sa, $vendor, $product, $resource
+
+  outcome:
+    $p10 = window.percentile($stage1_extract.observed_val, 10)
+    $q25 = window.percentile($stage1_extract.observed_val, 25)
+    $q50 = window.percentile($stage1_extract.observed_val, 50)
+    $q75 = window.percentile($stage1_extract.observed_val, 75)
+    $p90 = window.percentile($stage1_extract.observed_val, 90)
+    $raw_active_days = count_distinct($stage1_extract.window_start)
+}
+
+$sa = $stage1_extract.sa
+$vendor = $stage1_extract.vendor
+$product = $stage1_extract.product
+$resource = $stage1_extract.resource
+$sa = $quantile_envelope.sa
+$vendor = $quantile_envelope.vendor
+$product = $quantile_envelope.product
+$resource = $quantile_envelope.resource
+$ws = $stage1_extract.window_start
+
+match:
+  $sa, $vendor, $product, $resource, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $q25_val = max($quantile_envelope.q25)
+  $q50_val = max($quantile_envelope.q50)
+  $q75_val = max($quantile_envelope.q75)
+  $raw_active_days = max($quantile_envelope.raw_active_days)
+  $in_scoring_window = max($stage1_extract.in_scoring_window)
+
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $personal_z = ($observed - $hist_avg) / $safe_stddev
+
+  $iqr = $q75_val - $q25_val
+  $q50_floor = $q50_val * 0.05 + 1.0
+  $safe_iqr = if($iqr > 0, $iqr, $q50_floor)
+  $bowley_skew = ($q75_val + $q25_val - (2.0 * $q50_val)) / $safe_iqr
+  $tail_heaviness = (max($quantile_envelope.p90) - max($quantile_envelope.p10)) / $safe_iqr
+
+  $pos_skew = if($bowley_skew > 0, $bowley_skew, 0.0)
+  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 3.0 * $pos_skew) * $safe_iqr)
+  $safe_fence = if($adj_upper_fence > 0, $adj_upper_fence, 1.0)
+  $tukey_fence_ratio = $observed / $safe_fence
+
+condition:
+  $in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_fence_ratio >= 2.0
+
+order:
+  $tukey_fence_ratio desc
+```
+
+#### Query 5B: Cloud Audit Log Ingestion-Lag Quantile & Bowley Skewness Audit (`secops-statistical-hunter`)
+```yara
+// Goal: Profile telemetry ingestion lag quantiles, Bowley skewness, and negative clock-skew / timestomp anomalies per log_type
+metadata.event_timestamp.seconds > 0
+$log_type = metadata.log_type
+$log_type != ""
+
+match:
+  $log_type by 1h
+
+outcome:
+  $event_count = count(metadata.id)
+  $p10 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 10)
+  $p25 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 25)
+  $p50 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 50)
+  $p75 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 75)
+  $p90 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 90)
+
+  $iqr = $p75 - $p25
+  $bowley_num = $p75 + $p25 - (2 * $p50)
+  $safe_iqr = if($iqr > 0, $iqr, 1.0)
+  $bowley_skew = $bowley_num / $safe_iqr
+  $idr = $p90 - $p10
+  $tail_heaviness = $idr / $safe_iqr
+
+condition:
+  $event_count >= 10 and ($p10 < 0 or $p90 >= 300 or $bowley_skew >= 0.75)
+
+order:
+  $p90 desc
+```
+
+---
+
 ## 📜 License
 This project is licensed under the [Apache License 2.0](LICENSE).
 ```

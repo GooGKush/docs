@@ -845,6 +845,107 @@ order:
 ```
 ---
 
+---
+
+## 4. Linux Server Egress Quantile Shape ($P_{50}$ vs $P_{90}$) & Anti-Forensic Timestomp / Syslog Delay Auditing (`v2.9.0`)
+
+Adversaries operating on compromised Linux servers frequently (1) blend staged archive exfiltration into routine outbound traffic or (2) manipulate file/event timestamps (`touch -d`, clock rollback) or suspend `rsyslog`/`auditd` forwarding during privilege escalation.
+* **Query 5A**: Combines 30-day `metrics.network_bytes_outbound` with intra-bucket `window.percentile(network.sent_bytes, 50)` and `window.percentile(network.sent_bytes, 90)` (`$flow_tail_burst_ratio >= 10.0`).
+* **Query 5B**: Audits `metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds` across `$p10, $p25, $p50, $p75, $p90` and Bowley skewness (`$bowley_skew`) to catch negative lag (`$p10_lag < -60` from future clock skew) or right-skewed forwarder flush spikes (`$tail_lag_spread >= 300`).
+
+#### Query 5A: 30-Day Outbound Bytes Z-Score + Intra-Bucket Per-Flow $P_{50}/P_{90}$ Tail Concentration (`secops-risk-metrics-multistage`)
+```yara
+// Goal: Combine 30-day metrics.network_bytes_outbound macro Z-score with intra-bucket per-flow P50/P90 payload quantile shape fingerprinting
+stage stage1_extract {
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
+    principal.asset.hostname = $host
+    $host != ""
+
+  match:
+    $host by 1d
+
+  outcome:
+    $observed_val = sum(network.sent_bytes)
+    $flow_count = count(metadata.id)
+    $flow_p50_bytes = window.percentile(network.sent_bytes, 50)
+    $flow_p90_bytes = window.percentile(network.sent_bytes, 90)
+    $historical_avg = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: avg,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $historical_stddev = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $historical_active_days = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+}
+
+$host = $stage1_extract.host
+$ws = $stage1_extract.window_start
+
+match:
+  $host, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $flows = max($stage1_extract.flow_count)
+  $p50_bytes = max($stage1_extract.flow_p50_bytes)
+  $p90_bytes = max($stage1_extract.flow_p90_bytes)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $personal_z = ($observed - $hist_avg) / $safe_stddev
+
+  $safe_p50 = if($p50_bytes > 0, $p50_bytes, 1.0)
+  $flow_tail_burst_ratio = $p90_bytes / $safe_p50
+
+condition:
+  $active_days >= 7 and $personal_z >= 2.0 and $flow_tail_burst_ratio >= 10.0
+
+order:
+  $flow_tail_burst_ratio desc
+```
+
+#### Query 5B: Linux Telemetry Ingestion-Lag & Timestomp Quantile Audit (`secops-statistical-hunter`)
+```yara
+// Goal: Profile telemetry ingestion lag quantiles, Bowley skewness, and negative clock-skew / timestomp anomalies per log_type
+metadata.event_timestamp.seconds > 0
+$log_type = metadata.log_type
+$log_type != ""
+
+match:
+  $log_type by 1h
+
+outcome:
+  $event_count = count(metadata.id)
+  $p10 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 10)
+  $p25 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 25)
+  $p50 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 50)
+  $p75 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 75)
+  $p90 = window.percentile(metadata.ingested_timestamp.seconds - metadata.event_timestamp.seconds, 90)
+
+  $iqr = $p75 - $p25
+  $bowley_num = $p75 + $p25 - (2 * $p50)
+  $safe_iqr = if($iqr > 0, $iqr, 1.0)
+  $bowley_skew = $bowley_num / $safe_iqr
+  $idr = $p90 - $p10
+  $tail_heaviness = $idr / $safe_iqr
+
+condition:
+  $event_count >= 10 and ($p10 < 0 or $p90 >= 300 or $bowley_skew >= 0.75)
+
+order:
+  $p90 desc
+```
+
+---
+
 ## 📜 License
 This project is licensed under the [Apache License 2.0](LICENSE).
 ```

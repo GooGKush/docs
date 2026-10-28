@@ -2,6 +2,9 @@
 
 Technical articles, threat hunting case studies, and reference guides for multi-stage statistical and UEBA hunting in **Google Security Operations (SecOps)**.
 
+
+> **New in `v2.2.0` (`secops-risk-metrics-multistage`) & `v2.9.0` (`secops-statistical-hunter`)**: All 15 UEBA hunting runbooks now include live-verified **Non-Parametric Quantiles (`window.percentile`)**, **Bowley Quartile Skewness ($B_{\text{skew}}$)**, **Moors Tail-Heaviness Ratio ($T_{\text{ratio}}$)**, **Hubert–Vandervieren Skewness-Adjusted Tukey Fences**, **Intra-Bucket Per-Flow Payload Quantile Shape ($P_{50}$ vs $P_{90}$)**, and **Telemetry Ingestion-Lag / Clock-Skew / Timestomping Quantile Auditing**.
+
 ## Published Guides & Case Studies
 
 * **[Beyond Static Rules: Hunting PHP2Shell and PHP UAF Exploitation with Multi-Stage Behavioral Analytics in Google SecOps](php2shell-ueba-hunting.md)**

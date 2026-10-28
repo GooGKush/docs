@@ -1987,3 +1987,67 @@ If you are operating inside an agentic harness connected to the SecOps MCP serve
        $capstone_threat_norm_sq = sum($stage1_per_scenario_dedup.scenario_z_sq)
    }
    ```
+
+---
+
+## 7. Non-Parametric Quantiles (`window.percentile`), Bowley Skewness & Intra-Bucket Per-Flow Upload Shape ($P_{50}$ vs $P_{90}$)
+
+When an insider stages and uploads sensitive archives alongside routine daily traffic, the total daily byte count (`sum(network.sent_bytes)`) may remain below $3.0\sigma$ if historic backups inflated the 30-day standard deviation. Adding `window.percentile(network.sent_bytes, 50)` (`$flow_p50_bytes`) and `window.percentile(network.sent_bytes, 90)` (`$flow_p90_bytes`) inside `stage1_extract` exposes extreme per-flow tail concentration (`$flow_tail_burst_ratio = $p90_bytes / $safe_p50 >= 10.0`) alongside the 30-day macro `metrics.network_bytes_outbound` baseline:
+
+```yara
+// Goal: Combine 30-day metrics.network_bytes_outbound macro Z-score with intra-bucket per-flow P50/P90 payload quantile shape fingerprinting
+stage stage1_extract {
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
+    principal.asset.hostname = $host
+    $host != ""
+
+  match:
+    $host by 1d
+
+  outcome:
+    $observed_val = sum(network.sent_bytes)
+    $flow_count = count(metadata.id)
+    $flow_p50_bytes = window.percentile(network.sent_bytes, 50)
+    $flow_p90_bytes = window.percentile(network.sent_bytes, 90)
+    $historical_avg = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: avg,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $historical_stddev = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $historical_active_days = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+}
+
+$host = $stage1_extract.host
+$ws = $stage1_extract.window_start
+
+match:
+  $host, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $flows = max($stage1_extract.flow_count)
+  $p50_bytes = max($stage1_extract.flow_p50_bytes)
+  $p90_bytes = max($stage1_extract.flow_p90_bytes)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $personal_z = ($observed - $hist_avg) / $safe_stddev
+
+  $safe_p50 = if($p50_bytes > 0, $p50_bytes, 1.0)
+  $flow_tail_burst_ratio = $p90_bytes / $safe_p50
+
+condition:
+  $active_days >= 7 and $personal_z >= 2.0 and $flow_tail_burst_ratio >= 10.0
+
+order:
+  $flow_tail_burst_ratio desc
+```

@@ -1769,6 +1769,63 @@ Security telemetry is messy: some servers are dead quiet for months, some are no
   * **10 OOM bailouts out of 25 requests (Oracle Probing)**: Regularized rate is $(10 + 1) / (25 + 10) = \mathbf{31.4\% \ge 15\%}$ with $\ge 15$ total trials, surfacing sustained oracle probing while eliminating small-sample noise.
 ---
 
+---
+
+### 3.10 Non-Parametric Quantiles (`window.percentile`), Bowley Skewness & HTTP Response Payload Shape ($P_{50}$ vs $P_{90}$)
+
+When an attacker interacts with a staged `php2shell` webshell or triggers a PHP heap/database dump over HTTP, most keepalive and navigation requests return small responses (`$q50`), whereas command-output dumps inflate the upper tail (`$p90`) and right-skew the intra-hour response size distribution (`$bowley_skew > 0.40`, `$tail_to_median_ratio = $p90 / $safe_q50 >= 10.0`). Using `window.percentile(network.received_bytes, P)`, we fingerprint this intra-hour payload shape deformation directly on `NETWORK_HTTP` events:
+
+```yara
+// Goal: Detect webshell / HTTP response payload quantile shape anomalies ($p50 vs $p90 and Bowley skewness)
+stage stage1_http_shape {
+    metadata.event_type = "NETWORK_HTTP"
+    network.received_bytes > 0
+    target.hostname = $vhost
+    principal.ip = $client_ip
+    $vhost != ""
+    $client_ip != ""
+
+  match:
+    $vhost, $client_ip by 1h
+
+  outcome:
+    $req_count = count(metadata.id)
+    $p25_bytes = window.percentile(network.received_bytes, 25)
+    $p50_bytes = window.percentile(network.received_bytes, 50)
+    $p75_bytes = window.percentile(network.received_bytes, 75)
+    $p90_bytes = window.percentile(network.received_bytes, 90)
+}
+
+$vhost = $stage1_http_shape.vhost
+$client_ip = $stage1_http_shape.client_ip
+$ws = $stage1_http_shape.window_start
+
+match:
+  $vhost, $client_ip, $ws by 1h
+
+outcome:
+  $requests = max($stage1_http_shape.req_count)
+  $q25 = max($stage1_http_shape.p25_bytes)
+  $q50 = max($stage1_http_shape.p50_bytes)
+  $q75 = max($stage1_http_shape.p75_bytes)
+  $p90 = max($stage1_http_shape.p90_bytes)
+
+  $iqr = $q75 - $q25
+  $safe_iqr = if($iqr > 0, $iqr, 1.0)
+  $bowley_skew = ($q75 + $q25 - (2.0 * $q50)) / $safe_iqr
+
+  $safe_q50 = if($q50 > 0, $q50, 1.0)
+  $tail_to_median_ratio = $p90 / $safe_q50
+
+condition:
+  $requests >= 10 and $tail_to_median_ratio >= 10.0
+
+order:
+  $tail_to_median_ratio desc
+```
+
+---
+
 ## 📜 License
 This project is licensed under the [Apache License 2.0](LICENSE).
 ```
