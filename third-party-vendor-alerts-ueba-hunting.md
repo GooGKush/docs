@@ -218,7 +218,7 @@ order:
 * **How Multi-Stage UEBA Extends Coverage**: Combines 4-stage Beta-Binomial Empirical Bayes authentication failure-rate regularization with a 3-Metric Multilevel Part-of-the-Whole Workspace/Identity behavioral triad.
 
 #### Query 2A: 3-Metric Multilevel Part-of-the-Whole Workspace/Identity Triad (`secops-risk-metrics-multistage`)
-Corroborates upstream phishing (`proofpoint-tap`, `trellix-etp`, `trellix-ex`) and identity (`crowdstrike-idp`, `microsoft-defender-identity`) alerts by scoring every user across the **Workspace/Identity Activity Triad**—`metrics.workspace_auth_attempts_total`, `metrics.workspace_total_download_actions`, and `metrics.workspace_total_change_actions`—against both their personal 30-day behavioral baseline (with zero-safe denominators so dormant 0-baseline users are never dropped) and the enterprise fleet ($D_{\text{vs\_fleet}}^2 \ge 12.25$).
+Corroborates upstream phishing (`proofpoint-tap`, `trellix-etp`, `trellix-ex`) and identity (`crowdstrike-idp`, `microsoft-defender-identity`) alerts by scoring every user across the **Workspace/Identity Activity Triad**—`metrics.workspace_auth_attempts_total`, `metrics.workspace_total_download_actions`, and `metrics.workspace_total_change_actions`—against both their personal 30-day behavioral baseline (with zero-safe denominators so dormant 0-baseline users are never dropped) and the enterprise fleet ($D_{\text{vs fleet}}^2 \ge 12.25$).
 
 ```yara
 // ============================================================================

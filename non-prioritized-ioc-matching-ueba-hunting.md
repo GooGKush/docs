@@ -355,7 +355,7 @@ order:
 ```
 
 #### Query 2B: Leave-One-Out Discrete Poisson Rarity ($Z_{\text{Poisson}}^2 \ge 9.0$) on Rare Process Executions (`secops-statistical-hunter`)
-Detects rare or newly introduced RMM tools, cryptominers, and suspicious Linux/Windows binaries on `$e.target.process.file.full_path` (fixing the `principal` vs. `target` process constraint) even when their SHA-256 hash is modified or absent from threat feeds. Using a **Leave-One-Out Discrete Poisson Arrival Model** ($\lambda = (\text{prior\_runs} + 0.5) / 29.0$, $Z_{\text{Poisson}}^2 = (k - \lambda)^2 / \lambda \ge 9.0$), it surfaces tools with a near-zero historical rate ($\lambda \le 0.5\text{/day}$) that suddenly execute on an endpoint.
+Detects rare or newly introduced RMM tools, cryptominers, and suspicious Linux/Windows binaries on `$e.target.process.file.full_path` (fixing the `principal` vs. `target` process constraint) even when their SHA-256 hash is modified or absent from threat feeds. Using a **Leave-One-Out Discrete Poisson Arrival Model** ($\lambda = (\text{prior runs} + 0.5) / 29.0$, $Z_{\text{Poisson}}^2 = (k - \lambda)^2 / \lambda \ge 9.0$), it surfaces tools with a near-zero historical rate ($\lambda \le 0.5\text{/day}$) that suddenly execute on an endpoint.
 
 ```yara
 // ============================================================================

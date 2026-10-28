@@ -521,8 +521,8 @@ order:
 
 #### Query 3: Unified Cold-Start Hurdle & 30-Day Robust MAD on Multi-Cloud Secret & Resource Reads (`secops-risk-metrics-multistage` + `secops-statistical-hunter`)
 Rather than splitting secret and resource harvesting into two disconnected queries (one for cold-start identities with $< 5$ active days and another for mature identities with $\ge 5$ active days), this unified 4-stage pipeline evaluates **both statistical regimes inside a single DAG** via an in-query piecewise switch (`$unified_threat_score = if($raw_active_days <= 4, $hurdle_threat_score, $modified_z)`):
-- **Regime 1 — Cold-Start & Dormant Identities ($\text{raw\_active\_days} \le 4$)**: Directly fixes the single-stage baseline constraints coverage considerations in curated detection rules by applying a $3.0\times$ Bernoulli Hurdle Crossing multiplier weighted by log read volume and distinct secret/resource breadth (`$distinct_secrets`).
-- **Regime 2 — Mature Active Identities ($\text{raw\_active\_days} \ge 5$)**: Replaces the single-stage single-stage baseline constraints and single-stage baseline constraints gates with a 4-stage Iglewicz-Hoaglin **Modified Z-Score ($M_Z$)** over 30-day Median Absolute Deviation (MAD), cross-checked against 30-day `metrics.resource_read_success`.
+- **Regime 1 — Cold-Start & Dormant Identities ($\text{raw active days} \le 4$)**: Directly fixes the single-stage baseline constraints coverage considerations in curated detection rules by applying a $3.0\times$ Bernoulli Hurdle Crossing multiplier weighted by log read volume and distinct secret/resource breadth (`$distinct_secrets`).
+- **Regime 2 — Mature Active Identities ($\text{raw active days} \ge 5$)**: Replaces the single-stage single-stage baseline constraints and single-stage baseline constraints gates with a 4-stage Iglewicz-Hoaglin **Modified Z-Score ($M_Z$)** over 30-day Median Absolute Deviation (MAD), cross-checked against 30-day `metrics.resource_read_success`.
 
 ```yara
 // ============================================================================
@@ -1367,7 +1367,7 @@ order:
 * **How Multi-Stage UEBA Extends Coverage**: Computes Zipfian power-law fleet rarity across Kubernetes API verb/resource tuples and Markov 2-gram container runtime parent-to-child process transition surprisal.
 
 #### Query 7A: Zipfian Power-Law Fleet Rarity & Inverse Principal Frequency on Kubernetes Workload & RBAC Creations (`secops-statistical-hunter`)
-Removes the `kube-system` and `/\/gke\-/` prefix coverage considerations by ranking all Kubernetes pod, workload, ClusterRoleBinding, RoleBinding, and token creation targets across **all namespaces** using **Zipfian Power-Law Rarity & Inverse Principal Frequency** ($\text{zipf\_rarity\_score} \ge 4.0$, $\le 2$ principals).
+Removes the `kube-system` and `/\/gke\-/` prefix coverage considerations by ranking all Kubernetes pod, workload, ClusterRoleBinding, RoleBinding, and token creation targets across **all namespaces** using **Zipfian Power-Law Rarity & Inverse Principal Frequency** ($\text{zipf rarity score} \ge 4.0$, $\le 2$ principals).
 
 ```yara
 // ============================================================================
@@ -1600,7 +1600,7 @@ order:
 * **How Multi-Stage UEBA Extends Coverage**: Calculates geodesic haversine velocity ($\ge 900\text{ km/h}$) across consecutive cloud logins and circular 24-hour von Mises off-hours authentication divergence.
 
 #### Query 8A: 3-Metric Multilevel Part-of-the-Whole Cloud Identity & Workspace Triad (`secops-risk-metrics-multistage`)
-Upgrades curated detection rules by simultaneously scoring every user across the **Workspace Identity & Activity Triad** (`metrics.workspace_auth_attempts_total`, `metrics.workspace_total_download_actions`, and `metrics.workspace_total_change_actions`) against both their personal 30-day baseline (with zero-safe denominators) and the concurrent enterprise fleet ($D_{\text{vs\_fleet}}^2 \ge 12.25$).
+Upgrades curated detection rules by simultaneously scoring every user across the **Workspace Identity & Activity Triad** (`metrics.workspace_auth_attempts_total`, `metrics.workspace_total_download_actions`, and `metrics.workspace_total_change_actions`) against both their personal 30-day baseline (with zero-safe denominators) and the concurrent enterprise fleet ($D_{\text{vs fleet}}^2 \ge 12.25$).
 
 ```yara
 // ============================================================================

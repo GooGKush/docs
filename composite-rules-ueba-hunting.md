@@ -265,7 +265,7 @@ order:
 * **How Multi-Stage UEBA Extends Coverage**: Separates targeted lateral propagation from enterprise-wide administrative rollouts via 3-stage Dual-Baseline Fleet-Normalized Delta-Z ($\Delta Z \ge 3.0\sigma$) and fuses 30-day Host Auth Failures with Inbound Network Bytes.
 
 #### Query 2A: 3-Stage Dual-Sector Host Authentication Failures (`metrics.auth_attempts_fail`) + Inbound Network Bytes (`metrics.network_bytes_inbound`) Fusion (`secops-risk-metrics-multistage`)
-Detects lateral movement and ingress tool transfer on a host without requiring upstream `TA0007` discovery rules by fusing 30-day baselines for **Host Authentication Failures (`metrics.auth_attempts_fail`)** and **Inbound Network Bytes (`metrics.network_bytes_inbound` with `network.received_bytes > 0` and `network.received_bytes < 1000000000000000`, `metric: value_sum`)** keyed on `principal.asset.hostname` ($D^2 = Z_{\text{auth\_fail}}^2 + Z_{\text{inbound\_bytes}}^2 \ge 12.25$).
+Detects lateral movement and ingress tool transfer on a host without requiring upstream `TA0007` discovery rules by fusing 30-day baselines for **Host Authentication Failures (`metrics.auth_attempts_fail`)** and **Inbound Network Bytes (`metrics.network_bytes_inbound` with `network.received_bytes > 0` and `network.received_bytes < 1000000000000000`, `metric: value_sum`)** keyed on `principal.asset.hostname` ($D^2 = Z_{\text{auth fail}}^2 + Z_{\text{inbound bytes}}^2 \ge 12.25$).
 
 ```yara
 // ============================================================================
@@ -460,7 +460,7 @@ order:
 * **How Multi-Stage UEBA Extends Coverage**: Unifies cold-start cloud identities (Two-Part Hurdle) with 30-day multi-metric Cloud CRUD baselines (`Option 1`) and measures Markov 2-gram cloud API transition surprisal across sequential control-plane actions.
 
 #### Query 3A: 4-Stage Roll-Up Cloud Resource Read Failures (`metrics.resource_read_fail`) + Auth Successes (`metrics.auth_attempts_success`) Fusion (`secops-risk-metrics-multistage`)
-Eliminates the `10m` window cliff, `$method_count >= 3` magic number, and same-IP constraint by fusing **30-day Cloud Resource Read Failures (`metrics.resource_read_fail` rolled up across `principal.user.userid`, `metadata.product_name`, `metadata.vendor_name`)** with **30-day Authentication Successes (`metrics.auth_attempts_success` keyed on `target.user.userid`)** for the same cloud user ($D^2 = Z_{\text{read\_fail}}^2 + Z_{\text{auth\_success}}^2 \ge 12.25$). Whenever a compromised cloud identity logs in or assumes roles across *any* IP address and subsequently triggers an anomalous surge of access-denied `RESOURCE_READ` / `USER_RESOURCE_ACCESS` probes against AWS, GCP, or Azure services over a 24-hour window, the joint Euclidean distance surfaces the compromise.
+Eliminates the `10m` window cliff, `$method_count >= 3` magic number, and same-IP constraint by fusing **30-day Cloud Resource Read Failures (`metrics.resource_read_fail` rolled up across `principal.user.userid`, `metadata.product_name`, `metadata.vendor_name`)** with **30-day Authentication Successes (`metrics.auth_attempts_success` keyed on `target.user.userid`)** for the same cloud user ($D^2 = Z_{\text{read fail}}^2 + Z_{\text{auth success}}^2 \ge 12.25$). Whenever a compromised cloud identity logs in or assumes roles across *any* IP address and subsequently triggers an anomalous surge of access-denied `RESOURCE_READ` / `USER_RESOURCE_ACCESS` probes against AWS, GCP, or Azure services over a 24-hour window, the joint Euclidean distance surfaces the compromise.
 
 ```yara
 // ============================================================================
@@ -593,7 +593,7 @@ order:
 ```
 
 #### Query 3B: Two-Part Zero-Inflated Hurdle Model on Cross-Service Cloud API Activity (`secops-statistical-hunter`)
-Detects both dormant cloud accounts/service accounts suddenly waking up to harvest secrets or assume roles *and* active cloud identities spiking across `RESOURCE_READ`, `RESOURCE_WRITTEN`, and `USER_RESOURCE_ACCESS` events over `1d` buckets (curated detection rules). Part 1 (Discrete Bernoulli Hurdle) flags identities active on $\le 2$ days in the lookback window with a discrete activation multiplier, while Part 2 (Continuous Intensity) scores established identities via their positive-activity Z-score ($\text{hurdle\_threat\_score} \ge 3.0$).
+Detects both dormant cloud accounts/service accounts suddenly waking up to harvest secrets or assume roles *and* active cloud identities spiking across `RESOURCE_READ`, `RESOURCE_WRITTEN`, and `USER_RESOURCE_ACCESS` events over `1d` buckets (curated detection rules). Part 1 (Discrete Bernoulli Hurdle) flags identities active on $\le 2$ days in the lookback window with a discrete activation multiplier, while Part 2 (Continuous Intensity) scores established identities via their positive-activity Z-score ($\text{hurdle threat score} \ge 3.0$).
 
 ```yara
 // ============================================================================

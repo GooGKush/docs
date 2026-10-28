@@ -635,8 +635,8 @@ order:
 
 #### Query 4: Unified Personal Leave-One-Out Poisson Rarity & Zipfian Fleet Rarity on Windows Persistence, Tampering & Cryptominers (`secops-statistical-hunter`)
 Because both **Personal Leave-One-Out Discrete Poisson Rarity** (catching built-in Windows tampering utilities like `sc.exe`, `schtasks.exe`, `wevtutil.exe`, `vssadmin.exe`, `bcdedit.exe` executing on a host where their prior 29-day rate $\lambda \le 0.5\text{/day}$) and **Zipfian Power-Law Fleet Rarity** (catching custom persistence services, BYOVD rootkit loaders, and rogue cryptominers executing on $\le 2$ hosts in the fleet) operate on the exact same `PROCESS_LAUNCH` telemetry stream (`$entity, $tool by 1d`), this **Option 1 Unified Pipeline** evaluates both regimes inside a single 4-stage DAG (`$unified_threat_score = if($adopter_hosts <= 2, $zipf_rarity_score, $poisson_z)`):
-- **Regime 1 — Fleet-Rare Custom Persistence / Cryptominer Binaries ($\text{adopter\_hosts} \le 2$)**: Scores Zipfian log-rank departure and inverse host tail rarity (`$zipf_rarity_score >= 4.0`).
-- **Regime 2 — Built-In Windows Tampering & Persistence Utilities ($\text{adopter\_hosts} \ge 3, \lambda \le 0.5\text{/day}$)**: Scores Leave-One-Out Poisson deviance (`$poisson_z >= 3.0`, equivalent to $Z_{\text{Poisson}}^2 \ge 9.0$) on quiet endpoints while filtering out noisy build servers.
+- **Regime 1 — Fleet-Rare Custom Persistence / Cryptominer Binaries ($\text{adopter hosts} \le 2$)**: Scores Zipfian log-rank departure and inverse host tail rarity (`$zipf_rarity_score >= 4.0`).
+- **Regime 2 — Built-In Windows Tampering & Persistence Utilities ($\text{adopter hosts} \ge 3, \lambda \le 0.5\text{/day}$)**: Scores Leave-One-Out Poisson deviance (`$poisson_z >= 3.0`, equivalent to $Z_{\text{Poisson}}^2 \ge 9.0$) on quiet endpoints while filtering out noisy build servers.
 
 ```yara
 // ============================================================================

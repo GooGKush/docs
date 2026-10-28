@@ -529,7 +529,7 @@ rule linux_php_opcache_aslr_disable_and_file_read {
 
 #### C. Whole UEBA Harness Queries (`main`)
 
-* **Query 3A (`poisson_rare_surge_2stage.yl2`)**: Uses **Leave-One-Out Discrete Poisson Rarity** ($\lambda = (\text{prior\_runs} + 0.5)/29.0$, $Z^2 = (k - \lambda)^2/\lambda \ge 12.25$) to flag `setarch` or `seccomp=unconfined` only on hosts where it is historically rare ($\lambda \le 0.5$/day), automatically quieting CI/CD build nodes.
+* **Query 3A (`poisson_rare_surge_2stage.yl2`)**: Uses **Leave-One-Out Discrete Poisson Rarity** ($\lambda = (\text{prior runs} + 0.5)/29.0$, $Z^2 = (k - \lambda)^2/\lambda \ge 12.25$) to flag `setarch` or `seccomp=unconfined` only on hosts where it is historically rare ($\lambda \le 0.5$/day), automatically quieting CI/CD build nodes.
 * **Query 3B (`two_part_hurdle_2stage.yl2`)**: Expands the file-read regex to capture both `/proc/self/` and numeric `/proc/[0-9]+/` memory maps, scoring hosts via a Two-Part Hurdle gate.
 
 ##### Query 3A: Leave-One-Out Discrete Poisson Rarity on ASLR Disablement (`setarch` / `seccomp`)
@@ -1681,7 +1681,7 @@ Security telemetry is messy: some servers are dead quiet for months, some are no
 * **How the Math Works**:
   1. Stage 1 counts `$adopter_hosts` (how many machines in the entire company ran this binary/flag) and `$fleet_volume` (total executions).
   2. The Root Stage compares total volume to adopter breadth and applies an asymptotic tail boost:
-     $$\text{Zipf Rarity Score} = \left(\ln(\text{fleet\_volume}) - \ln(\text{adopter\_hosts})\right) \times \left(1 + \frac{1}{\text{adopter\_hosts}}\right)$$
+     $$\text{Zipf Rarity Score} = \left(\ln(\text{fleet volume}) - \ln(\text{adopter hosts})\right) \times \left(1 + \frac{1}{\text{adopter hosts}}\right)$$
   3. By gating on `$adopter_hosts <= 2`, any tool used by a 15-person dev team is automatically ignored, while an attacker repeatedly spawning `httpd -X` on a single production server (`adopter_hosts = 1`) scores high and surfaces immediately.
 
 ---

@@ -263,8 +263,8 @@ order:
 
 #### Query 2: Unified Two-Part Host Hurdle & Zipfian Fleet Rarity on Chrome Extensions (`secops-statistical-hunter`)
 Because both **Zipfian Fleet Rarity** (fixing the `$ext_count < 3` constraint on sideloaded/rare extensions) and the **Two-Part Zero-Inflated Host Hurdle** (detecting dormant or newly installed `WEBSTORE`/`EXTERNAL` extensions waking up on a workstation) operate on the exact same `Chrome Browser Cloud Management` extension telemetry stream (`$host, $ext_id by 1d`), this **Option 1 Unified Pipeline** evaluates both models inside a single 4-stage DAG (`$unified_threat_score = if($baseline_active_samples <= 2, $hurdle_threat_score, $zipf_rarity_score)`):
-- **Regime 1 — Dormant / First-Time Host Activation ($\text{active\_days} \le 2$)**: Applies a $3.0\times$ Bernoulli Hurdle Crossing multiplier to the positive-activity intensity Z-score (`$hurdle_threat_score`).
-- **Regime 2 — Persistent Rare Fleet Extension ($\text{active\_days} \ge 3, \text{fleet\_prevalence} \le 3$)**: Scores Inverse Host Frequency (IDF) surprisal combined with log execution intensity (`$zipf_rarity_score`), fixing the `$ext_count < 3` self-suppression constraint when an aggressive extension generates $\ge 3$ events per hour on a single host.
+- **Regime 1 — Dormant / First-Time Host Activation ($\text{active days} \le 2$)**: Applies a $3.0\times$ Bernoulli Hurdle Crossing multiplier to the positive-activity intensity Z-score (`$hurdle_threat_score`).
+- **Regime 2 — Persistent Rare Fleet Extension ($\text{active days} \ge 3, \text{fleet prevalence} \le 3$)**: Scores Inverse Host Frequency (IDF) surprisal combined with log execution intensity (`$zipf_rarity_score`), fixing the `$ext_count < 3` self-suppression constraint when an aggressive extension generates $\ge 3$ events per hour on a single host.
 
 ```yara
 // ============================================================================
@@ -1527,7 +1527,7 @@ order:
 * **How Multi-Stage UEBA Extends Coverage**: Replaces static post-warning thresholds with a 3-Metric Multilevel Part-of-the-Whole Workspace Triad (`workspace_total_download_actions`, `workspace_chrome_os_File_download_upload_events`, `http_queries_total`).
 
 #### Query 9A: 3-Metric Multilevel Part-of-the-Whole Workspace Activity Triad (`secops-risk-metrics-multistage`)
-Fixes the dormant-user single-stage baseline constraints constraint using zero-safe denominators (`if($m2_p_std > 0, $m2_p_std, 1.0)`) and removes the brittle dependency on a prior SafeBrowsing alert `$d`. Simultaneously scores every user across the **Workspace Activity Triad** (`workspace_auth_attempts_total`, `workspace_total_download_actions`, and `workspace_total_change_actions`) against both their personal 30-day baseline and the enterprise fleet ($D_{\text{vs\_fleet}}^2 \ge 12.25$).
+Fixes the dormant-user single-stage baseline constraints constraint using zero-safe denominators (`if($m2_p_std > 0, $m2_p_std, 1.0)`) and removes the brittle dependency on a prior SafeBrowsing alert `$d`. Simultaneously scores every user across the **Workspace Activity Triad** (`workspace_auth_attempts_total`, `workspace_total_download_actions`, and `workspace_total_change_actions`) against both their personal 30-day baseline and the enterprise fleet ($D_{\text{vs fleet}}^2 \ge 12.25$).
 
 ```yara
 // ============================================================================
