@@ -1866,9 +1866,9 @@ You can create the Data Table and bulk-insert offboarding rows (with an optional
 
 ```bash
 # Set your SecOps tenant parameters
-PROJECT_ID="gus-sdl"
+PROJECT_ID="your-gcp-project-id"
 REGION="us"
-CUSTOMER_ID="8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5"
+CUSTOMER_ID="00000000-0000-0000-0000-000000000000"
 ACCESS_TOKEN="$(gcloud auth print-access-token)"
 BASE_URL="https://${REGION}-chronicle.googleapis.com/v1alpha/projects/${PROJECT_ID}/locations/${REGION}/instances/${CUSTOMER_ID}"
 
@@ -1927,8 +1927,8 @@ If you are operating inside an agentic harness connected to the SecOps MCP serve
 {
   "tool": "create_data_table",
   "arguments": {
-    "projectId": "gus-sdl",
-    "customerId": "8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5",
+    "projectId": "your-gcp-project-id",
+    "customerId": "00000000-0000-0000-0000-000000000000",
     "region": "us",
     "name": "insider_risk_watchlist",
     "description": "HR Offboarding and Insider Risk Watchlist for Class II retrospective and hybrid UEBA hunts",
@@ -1948,8 +1948,8 @@ If you are operating inside an agentic harness connected to the SecOps MCP serve
 {
   "tool": "add_rows_to_data_table",
   "arguments": {
-    "projectId": "gus-sdl",
-    "customerId": "8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5",
+    "projectId": "your-gcp-project-id",
+    "customerId": "00000000-0000-0000-0000-000000000000",
     "region": "us",
     "tableName": "insider_risk_watchlist",
     "rows": [
