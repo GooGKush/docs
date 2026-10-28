@@ -49,6 +49,17 @@ When Chrome Enterprise Core / Chrome Enterprise Premium reporting is enabled, Go
 3. **Auditing Cumulative "Under-the-Cap" Allowed Pastes (`Scenario 4: Query 4`)**:
    * Many organizations allow employees to copy, paste, or upload small snippets of sensitive data (e.g., under 10 KB) for legitimate daily workflows, logging those events under audit-only rules (`security_result.action_details = "EVENT_RESULT_ALLOWED"` or `"EVENT_RESULT_DETECTED"`). No single 150-byte or 1 KB paste triggers a block—but an insider copying records piecemeal can exfiltrate an entire contact list or pricing table across dozens of small pastes. Aggregating `sum(target.file.size)` and `count(metadata.id)` per user/day against their multi-day **Median Absolute Deviation (MAD)** and daily byte budget (`>= 10,000` bytes) catches piecemeal exfiltration.
 
+### 1.2 Optional Customization: Scoping or Enriching Hunts with an HR Offboarding Data Table (`%insider_risk_watchlist`)
+
+Insider Risk teams frequently maintain an **HR Offboarding / Watchlist Roster** (exported from Workday, BambooHR, or ServiceNow offboarding tickets) listing employees who have submitted their resignation notice, contractors approaching end-of-contract, or personnel in high-risk restructuring cohorts.
+
+> [!TIP]
+> **Why Data Table Filters Are Commented Out by Default**: In Google SecOps YARA-L 2.0, referencing a Data Table (`%insider_risk_watchlist.userid`) that has not yet been created in the target tenant causes an immediate compiler error. To ensure every query in this runbook works **out-of-the-box** for testing—and to support **Class I (Pre-Notice) Discovery** where an insider has *not yet given notice to HR*—all 15 queries ship unscoped by default and include a commented-out 2-line placeholder (`// $entity in %insider_risk_watchlist.entity_id`, `// $user in %insider_risk_watchlist.userid`, or `// $host in %insider_risk_watchlist.hostname`).
+
+Once you create and populate `%insider_risk_watchlist` (see **Section 4.3** for the exact schema, Chronicle REST API `curl` commands, and SecOps MCP examples, including automatic row expiration via `rowTimeToLive`), you can apply it in two ways:
+1. **Selective Class II Scoping (Uncomment in Stage 1)**: Uncomment the placeholder in specific Class II queries (or in a cloned "Post-Notice Audit" copy of the runbook) to evaluate only departing employees and their assigned laptops.
+2. **Stage 10 Capstone Watchlist Filtering or Enrichment (Uncomment in `Query 10` Only)**: Leave Queries 1–9 unscoped so the UEBA engine baselines the entire enterprise (catching Class I pre-notice actors), and uncomment the `%insider_risk_watchlist` join in **Stage 10 (`Query 10`)** when generating a dedicated daily digest for the Insider Risk / HR Legal review board.
+
 ---
 
 ## 2. Runbook Portfolio Matrix (15 Queries Across 10 Scenarios in 3 Waves)
@@ -90,6 +101,8 @@ stage sector_a_http {
     (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0)
     principal.asset.hostname = $entity
     $entity != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $entity in %insider_risk_watchlist.hostname
 
   match:
     $entity by 1d
@@ -145,7 +158,7 @@ stage sector_b_egress {
     $z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)
     $z_b_mature = if($z_b_raw > 0, $z_b_raw, 0.0)
     $hurdle_b_raw = math.log($b_obs + 1.0) * 0.30
-    $hurdle_b = if($b_obs >= 5000000, $b_hurdle_raw, 0.0)
+    $hurdle_b = if($b_obs >= 5000000, $hurdle_b_raw, 0.0)
     $z_b_piecewise = if($b_days <= 4, $hurdle_b, $z_b_mature)
 
     $producer_ratio = $b_obs / ($b_obs + $recv_bytes + 1.0)
@@ -214,6 +227,8 @@ stage daily_dlp_events {
     )
     $entity = strings.coalesce(principal.user.userid, principal.user.user_display_name, principal.asset.hostname, principal.hostname)
     $entity != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $entity in %insider_risk_watchlist.entity_id
 
   match:
     $entity by 1d
@@ -329,6 +344,8 @@ stage stage2_dlp_warn_then_paste {
     )
     $entity = strings.coalesce(principal.user.userid, principal.user.user_display_name, principal.asset.hostname, principal.hostname)
     $entity != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $entity in %insider_risk_watchlist.entity_id
 
   match:
     $entity by 1d
@@ -406,6 +423,8 @@ stage stage1_sensitive_paste_to_extension {
     $ext_id = re.capture(target.url, "(?i)chrome-extension:[/]+([a-z0-9]+)")
     $host != ""
     $ext_id != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $host in %insider_risk_watchlist.hostname
 
   match:
     $host, $ext_id by 1d
@@ -502,6 +521,8 @@ stage daily_extension_activity {
     $ext_id = strings.coalesce(target.resource.product_object_id, target.resource_ancestors.product_object_id)
     $host != ""
     $ext_id != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $host in %insider_risk_watchlist.hostname
 
   match:
     $host, $ext_id by 1d
@@ -616,6 +637,8 @@ stage stage1_daily_allowed_dlp {
     )
     $entity = strings.coalesce(principal.user.userid, principal.user.user_display_name, principal.asset.hostname, principal.hostname)
     $entity != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $entity in %insider_risk_watchlist.entity_id
 
   match:
     $entity by 1d
@@ -715,6 +738,8 @@ stage ws_triad {
     metadata.vendor_name = "Google Workspace"
     principal.user.userid = $user
     $user != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $user in %insider_risk_watchlist.userid
 
   match:
     $user by 1d
@@ -859,6 +884,8 @@ stage stage1_extract {
     $product != ""
     $resource != ""
     $ip != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $user in %insider_risk_watchlist.userid
 
   match:
     $user, $vendor, $product, $resource, $ip by 1d
@@ -1042,6 +1069,8 @@ stage denial_buckets {
     )
     principal.user.userid = $user
     $user != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $user in %insider_risk_watchlist.userid
 
   match:
     $user by 5m
@@ -1122,6 +1151,8 @@ stage sector_a_detail {
     metadata.event_type = $event_type
     principal.process.file.sha256 = $principal_process_file_hash
     $principal_process_file_hash != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $entity in %insider_risk_watchlist.hostname
 
   match:
     $entity, $event_type, $principal_process_file_hash by 1d
@@ -1252,6 +1283,8 @@ stage stage1_chrome_downloads {
     )
     $entity = strings.coalesce(principal.user.userid, principal.user.user_display_name, principal.asset.hostname, principal.hostname)
     $entity != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $entity in %insider_risk_watchlist.entity_id
 
   match:
     $entity by 1d
@@ -1332,6 +1365,8 @@ stage dns_host_baseline {
     network.dns.questions.name = $domain
     $host != ""
     $domain != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $host in %insider_risk_watchlist.hostname
 
   match:
     $host, $domain by 1d
@@ -1435,6 +1470,8 @@ stage stage1_extract {
     $user != ""
     $asn_org != ""
     $app != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $user in %insider_risk_watchlist.userid
 
   match:
     $user, $asn_org, $app by 1d
@@ -1524,6 +1561,8 @@ stage sector_a_detail {
     $entity != ""
     security_result.rule_name = $security_result_rule_name
     $security_result_rule_name != ""
+    // Optional HR Offboarding / Watchlist Data Table filter (see Section 4.3):
+    // $entity in %insider_risk_watchlist.hostname
 
   match:
     $entity, $security_result_rule_name by 1d
@@ -1671,6 +1710,8 @@ stage stage1_per_scenario_dedup {
 
 stage stage2_multi_scenario_rollup {
     $entity = $stage1_per_scenario_dedup.entity
+    // Optional HR Offboarding / Watchlist Data Table filter or join (see Section 4.3):
+    // $entity in %insider_risk_watchlist.entity_id
 
   match:
     $entity
@@ -1782,3 +1823,152 @@ curl -X POST "http://localhost:8080/api/v1/playbooks/run" \
   }
 }
 ```
+
+---
+
+### 4.3 Creating, Populating, and Querying the Optional `%insider_risk_watchlist` Data Table
+
+Each query in this runbook includes a commented-out 2-line placeholder (`// $entity in %insider_risk_watchlist.entity_id`, `// $user in %insider_risk_watchlist.userid`, or `// $host in %insider_risk_watchlist.hostname`). Keeping these lines commented out by default ensures the runbook works immediately in any SecOps environment without requiring pre-provisioned tables.
+
+When your Insider Risk or HR team is ready to integrate an offboarding or watchlist feed (e.g., daily exports from Workday, BambooHR, or ServiceNow offboarding tickets), follow the steps below to create and populate the `insider_risk_watchlist` Data Table.
+
+#### Step 1: Recommended Data Table Schema (`insider_risk_watchlist`)
+
+Because some telemetry sources key on corporate user ID (`principal.user.userid = "tim.smith"` or `principal.user.user_display_name = "MUGATU\\hanselmcdonald"`), while others key on endpoint hostname (`principal.asset.hostname = "mugatu.cymbal.local"`), include both specific columns (`userid`, `hostname`) and a unified `entity_id` column:
+
+| `columnIndex` | `originalColumn` | `columnType` | `keyColumn` | Purpose & Example Value |
+| :---: | :--- | :--- | :---: | :--- |
+| `0` | `entity_id` | `STRING` | `true` | Primary match key for `$entity = strings.coalesce(...)` stages (`"MUGATU\\hanselmcdonald"` or `"mugatu.cymbal.local"`). |
+| `1` | `userid` | `STRING` | `false` | Corporate username / email (`"MUGATU\\hanselmcdonald"`, `"tim.smith"`). |
+| `2` | `hostname` | `STRING` | `false` | Assigned corporate laptop / workstation (`"mugatu.cymbal.local"`). |
+| `3` | `watch_reason` | `STRING` | `false` | Operational cohort (`"POST_NOTICE_RESIGNATION"`, `"CONTRACTOR_END"`, `"RIF_COHORT"`). |
+| `4` | `notice_date` | `STRING` | `false` | Date resignation notice was submitted (`"2026-10-15"`). |
+| `5` | `departure_date` | `STRING` | `false` | Scheduled final day of employment (`"2026-10-30"`). |
+
+#### Step 2: Create and Populate `%insider_risk_watchlist` via Chronicle REST API (`curl`)
+
+You can create the Data Table and bulk-insert offboarding rows (with an optional `rowTimeToLive` such as `"30d"` so offboarded users automatically expire from the watchlist after their departure window) using the Chronicle `v1alpha` REST API:
+
+```bash
+# Set your SecOps tenant parameters
+PROJECT_ID="gus-sdl"
+REGION="us"
+CUSTOMER_ID="8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5"
+ACCESS_TOKEN="$(gcloud auth print-access-token)"
+BASE_URL="https://${REGION}-chronicle.googleapis.com/v1alpha/projects/${PROJECT_ID}/locations/${REGION}/instances/${CUSTOMER_ID}"
+
+# 1. Create the insider_risk_watchlist Data Table
+curl -X POST "${BASE_URL}/dataTables?dataTableId=insider_risk_watchlist" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "HR Offboarding and Insider Risk Watchlist for Class II retrospective and hybrid UEBA hunts",
+    "columnInfo": [
+      {"columnIndex": 0, "originalColumn": "entity_id",      "columnType": "STRING", "keyColumn": true},
+      {"columnIndex": 1, "originalColumn": "userid",         "columnType": "STRING"},
+      {"columnIndex": 2, "originalColumn": "hostname",       "columnType": "STRING"},
+      {"columnIndex": 3, "originalColumn": "watch_reason",   "columnType": "STRING"},
+      {"columnIndex": 4, "originalColumn": "notice_date",    "columnType": "STRING"},
+      {"columnIndex": 5, "originalColumn": "departure_date", "columnType": "STRING"}
+    ],
+    "rowTimeToLive": "30d"
+  }'
+
+# 2. Populate rows into insider_risk_watchlist (e.g., from a daily Workday / ServiceNow offboarding sync)
+# Tip: Insert one row keyed on entity_id = userid and a second row keyed on entity_id = hostname
+# so $entity = strings.coalesce(userid, hostname) stages match seamlessly regardless of log type.
+curl -X POST "${BASE_URL}/dataTables/insider_risk_watchlist/dataTableRows:bulkCreate" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "requests": [
+      {
+        "dataTableRow": {
+          "values": ["MUGATU\\hanselmcdonald", "MUGATU\\hanselmcdonald", "mugatu.cymbal.local", "POST_NOTICE_RESIGNATION", "2026-10-15", "2026-10-30"],
+          "rowTimeToLive": "30d"
+        }
+      },
+      {
+        "dataTableRow": {
+          "values": ["mugatu.cymbal.local", "MUGATU\\hanselmcdonald", "mugatu.cymbal.local", "POST_NOTICE_RESIGNATION", "2026-10-15", "2026-10-30"],
+          "rowTimeToLive": "30d"
+        }
+      },
+      {
+        "dataTableRow": {
+          "values": ["tim.smith", "tim.smith", "tim-smith-wks", "CONTRACTOR_OFFBOARDING", "2026-10-20", "2026-11-05"],
+          "rowTimeToLive": "30d"
+        }
+      }
+    ]
+  }'
+```
+
+#### Step 3: Or Create and Populate via SecOps MCP (`create_data_table` & `add_rows_to_data_table`)
+
+If you are operating inside an agentic harness connected to the SecOps MCP server, you can invoke `create_data_table` and `add_rows_to_data_table` directly:
+
+```json
+{
+  "tool": "create_data_table",
+  "arguments": {
+    "projectId": "gus-sdl",
+    "customerId": "8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5",
+    "region": "us",
+    "name": "insider_risk_watchlist",
+    "description": "HR Offboarding and Insider Risk Watchlist for Class II retrospective and hybrid UEBA hunts",
+    "columnInfo": [
+      {"columnIndex": 0, "originalColumn": "entity_id",      "columnType": "STRING", "keyColumn": true},
+      {"columnIndex": 1, "originalColumn": "userid",         "columnType": "STRING"},
+      {"columnIndex": 2, "originalColumn": "hostname",       "columnType": "STRING"},
+      {"columnIndex": 3, "originalColumn": "watch_reason",   "columnType": "STRING"},
+      {"columnIndex": 4, "originalColumn": "notice_date",    "columnType": "STRING"},
+      {"columnIndex": 5, "originalColumn": "departure_date", "columnType": "STRING"}
+    ]
+  }
+}
+```
+
+```json
+{
+  "tool": "add_rows_to_data_table",
+  "arguments": {
+    "projectId": "gus-sdl",
+    "customerId": "8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5",
+    "region": "us",
+    "tableName": "insider_risk_watchlist",
+    "rows": [
+      {"values": ["MUGATU\\hanselmcdonald", "MUGATU\\hanselmcdonald", "mugatu.cymbal.local", "POST_NOTICE_RESIGNATION", "2026-10-15", "2026-10-30"]},
+      {"values": ["mugatu.cymbal.local", "MUGATU\\hanselmcdonald", "mugatu.cymbal.local", "POST_NOTICE_RESIGNATION", "2026-10-15", "2026-10-30"]},
+      {"values": ["tim.smith", "tim.smith", "tim-smith-wks", "CONTRACTOR_OFFBOARDING", "2026-10-20", "2026-11-05"]}
+    ]
+  }
+}
+```
+
+#### Step 4: Two Ways to Reference `%insider_risk_watchlist` in the Queries
+
+1. **Pattern A — Hard Cohort Filter (`$entity in %insider_risk_watchlist.entity_id`)**:
+   Uncomment the placeholder line in any Stage 1 block (or in `stage2_multi_scenario_rollup` of `Query 10`) to restrict execution strictly to entities listed in the Data Table:
+   ```text
+   $entity in %insider_risk_watchlist.entity_id
+   ```
+2. **Pattern B — Multi-Column Context Enrichment in `Query 10` (`=` Join + Outcome Projection)**:
+   In `Query 10`'s `stage2_multi_scenario_rollup`, you can join `$entity = %insider_risk_watchlist.entity_id` and surface the HR metadata columns (`watch_reason`, `notice_date`, `departure_date`) directly in the final output table:
+   ```text
+   stage stage2_multi_scenario_rollup {
+       $entity = $stage1_per_scenario_dedup.entity
+       $entity = %insider_risk_watchlist.entity_id
+
+     match:
+       $entity
+
+     outcome:
+       $distinct_scenarios_matched = count_distinct($stage1_per_scenario_dedup.scenario_tag)
+       $matched_scenario_tags = array_distinct($stage1_per_scenario_dedup.scenario_tag)
+       $watch_reason = array_distinct(%insider_risk_watchlist.watch_reason)
+       $notice_date = array_distinct(%insider_risk_watchlist.notice_date)
+       $departure_date = array_distinct(%insider_risk_watchlist.departure_date)
+       $capstone_threat_norm_sq = sum($stage1_per_scenario_dedup.scenario_z_sq)
+   }
+   ```
