@@ -1,4 +1,4 @@
-# Signal Processing & Behavioral Baselines: Hunting "Shadow AI" and Autonomous Agentic Behavior with Multi-Stage UEBA in Google SecOps
+# Multi-Horizon Statistical & Point-Process UEBA: Hunting "Shadow AI" and Autonomous Agentic Behavior in Google SecOps
 
 *Authored by Greg Kushmerek — Google Security Operations (Chronicle SIEM & SOAR)*
 
@@ -10,30 +10,37 @@ Traditional point-in-time SIEM rules attempt to detect Shadow AI using static in
 2. **Identity Multiplexing (Human-in-the-Loop vs. Headless Daemons)**: An AI agent often executes under a legitimate human developer's corporate identity (`principal.user.userid`) or an existing cloud service account (`@*.iam.gserviceaccount.com`), inheriting trusted credentials and blending into authorized access logs.
 3. **Dynamic Tool-Use Adaptation**: Unlike traditional scripts that fail deterministically when blocked, an agentic ReAct (*Reason $\rightarrow$ Act $\rightarrow$ Observe*) loop reads error messages (`AccessDenied`, `HTTP 403`, CLI syntax errors) and autonomously mutates its command-line flags or API calls until it succeeds.
 
-By combining the two engines of the **Google SecOps Behavioral Analytics Harness**—**`secops-risk-metrics-multistage`** (30-day pre-computed `metrics.*` UEBA baselines) and **`secops-statistical-hunter`** (ad-hoc multi-stage signal processing and information-theoretic models over raw `UDM_EVENTS`)—we can classify resource consumption mathematically across **Human ($H$)**, **Deterministic Bot ($M_{\text{bot}}$)**, and **Agentic AI ($M_{\text{AI}}$)** regimes.
+By combining the two engines of the **Google SecOps Behavioral Analytics Harness**—**`secops-risk-metrics-multistage`** (30-day pre-computed `metrics.*` UEBA baselines) and **`secops-statistical-hunter`** (ad-hoc multi-stage bucketed point-process dispersion, empirical Markov transition surprisal, and structural heuristics over raw `UDM_EVENTS`)—we can separate resource consumption statistically across **Human ($H$)**, **Deterministic Bot ($M_{\text{bot}}$)**, and **Agentic AI ($M_{\text{AI}}$)** regimes.
+
+> [!IMPORTANT]
+> **What This Playbook Computes (Statistical & Point-Process UEBA, Not DSP Waveform Analysis)**: Because Chronicle SIEM operates on daily pre-computed baselines (`metrics.*`) and bucketed event aggregations (`by 1h`, `by 1d`) rather than continuous packet-level waveforms, recursive EMA state, or character-by-character string loops, every model below is grounded in operations YARA-L 2.0 executes natively:
+> 1. **Piecewise Cold-Start Hurdles + 30-Day Z-Scores** to score both newly observed tools/destinations (`active_days <= 4`) and anomalous volume spikes on established accounts (`active_days >= 5`).
+> 2. **Bucketed Point-Process Dispersion (Hourly Spacing CV & Hourly Fano Factor)** to distinguish steady multi-hour callback pacing ($\text{CV} \le 0.35$) and clustered multi-method API retry bursts ($F = \sigma^2/\mu \ge 4.0$) from irregular human work.
+> 3. **Empirical 1st-Order Markov Transition Surprisal ($-\ln P(\text{Child} \mid \text{Parent})$)** to isolate rare interpreter-to-shell process spawns (`python`/`node` $\rightarrow$ `bash`/`curl`/`gcloud`).
+> 4. **Explicit Algebraic Heuristics & Cross-Scenario Euclidean L2 Rollup**—using deterministic algebraic approximations where YARA-L engine constraints require them (**Off-Hours Clock-Distance Multiplier**, **30-Day High-Water Mark Breakout Z-Score**, **Windowed One-Sided Cumulative Exceedance**, and **Log-Scaled FQDN Length & Volume Heuristic**) and converging multi-plane hits via UDM Loopback in Stage 10.
 
 > [!NOTE]
 > **Programmatic `agentic_ueba` Playbook Compatibility (15 Queries across 3 Execution Waves)**: Every multi-stage YARA-L 2.0 query in this document is structured for direct ingestion by the `PlaybookRunner` engine in `~/projects/agentic_ueba` (`/api/v1/playbooks` and MCP `run_markdown_playbook`). All **15 queries** (10 scenarios) pass `MalachiteASTValidator.validate_query()` with **0 AST errors** and **100% live Chronicle compiler verification (`200 OK`)**:
 > * **Single-Shot Combined Scenarios (Scenarios 1, 5, 6, 7)**: Where both halves share the same entity key and `by 1d` horizon and fit within Chronicle's 2-UDM-source and 4-stage compiler caps, they are unified into a single multi-stage query (`Query 1`, `Query 5`, `Query 6`, `Query 7`).
-> * **Parallel Wave 1 Pairs (Scenarios 3, 8, 9)**: Where the two halves evaluate different entity keys (`9A` `USER` vs. `9B` `ASSET`) or pair a `metrics.*` query with a tightly pre-filtered raw statistical model (`3B` Markov interpreter$\rightarrow$shell regex, `8B` DNS length $\ge 45$), both run in parallel in **Wave 1** and export their findings to UDM.
-> * **True Serial `A -> UDM -> B` Splits (Scenarios 2, 4)**: Where Stage B requires sub-hour (`by 1h`) raw cadence/dispersion over high-volume telemetry (`2B` `NETWORK_CONNECTION` CV, `4B` Cloud API denial Fano factor), `2A` and `4A` run in **Wave 1**, flush their candidate entities to UDM (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH`), and gate **Wave 2** (`Query 2B`, `Query 4B`) via Stage 1 UDM Loopback.
+> * **Parallel Wave 1 Pairs (Scenarios 3, 8, 9)**: Where the two halves evaluate different entity keys (`9A` `USER` vs. `9B` `ASSET`) or pair a `metrics.*` query with a tightly pre-filtered raw statistical model (`3B` Markov interpreter$\rightarrow$shell regex, `8B` DNS FQDN length $\ge 45$), both run in parallel in **Wave 1** and export their findings to UDM.
+> * **True Serial `A -> UDM -> B` Splits (Scenarios 2, 4)**: Where Stage B requires hourly (`by 1h`) raw pacing or dispersion over high-volume telemetry (`2B` `NETWORK_CONNECTION` hourly spacing CV, `4B` Cloud API denial hourly Fano factor), `2A` and `4A` run in **Wave 1**, flush their candidate entities to UDM (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH`), and gate **Wave 2** (`Query 2B`, `Query 4B`) via Stage 1 UDM Loopback.
 > * **Unified Single-Query Capstone Rollup & Forensic Bridge (Scenario 10)**: **Wave 3** (`Query 10`) unions all upstream scenario tags via a single hierarchical regex (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-9]`)`), deduplicates per scenario in Stage 1, computes cross-scenario Euclidean L2 convergence in Stage 2, and pivots winning entities directly into raw endpoint/network/cloud telemetry in Stage 3.
 
 ---
 
-## 1. Theory of the Case: Signal Processing, Overlap Topology & Bayesian Priors
+## 1. Theory of the Case: Multi-Horizon Statistical Signatures, Overlap Topology & Historical Baselines
 
-### 1.1 Applied Signal Processing: Three Distinct Resource Signatures
+### 1.1 Multi-Horizon Statistical & Point-Process Signatures: Three Behavioral Regimes
 
-If we treat entity telemetry (authentication events, process launches, cloud API calls, DNS lookups, and network byte flows) as a discrete-time stochastic signal $x(t)$, **Humans ($H$)**, **Deterministic Bots ($M_{\text{bot}}$)**, and **Autonomous AI Agents ($M_{\text{AI}}$)** occupy distinct regions in the time, frequency, and information-theoretic domains:
+Across authentication logs, process launches, cloud control-plane calls, DNS queries, and network byte flows, **Humans ($H$)**, **Deterministic Bots ($M_{\text{bot}}$)**, and **Autonomous AI Agents ($M_{\text{AI}}$)** exhibit distinct statistical behaviors across bucketed event rates, lineage transitions, error dispersion, and payload directionality:
 
-| Signal Dimension | Mathematical Metric | 🧑 Human Actor ($H$) | 🤖 Deterministic Bot / Cron ($M_{\text{bot}}$) | 🧠 Autonomous / Shadow AI Agent ($M_{\text{AI}}$) |
+| Behavioral Dimension | Native YARA-L Metric | 🧑 Human Actor ($H$) | 🤖 Deterministic Bot / Cron ($M_{\text{bot}}$) | 🧠 Autonomous / Shadow AI Agent ($M_{\text{AI}}$) |
 | :--- | :--- | :--- | :--- | :--- |
-| **1. Macro Temporal Envelope (Low-Frequency Carrier)** | **Circadian von Mises Distance** ($\Delta\theta$ from 14:00 UTC peak) | **Strongly Diurnal**: Phase-locked to local working hours; deep nocturnal & weekend troughs. | **Flat or Impulse-Locked**: Either uniform 24/7 execution or sharp wall-clock cron spikes (`0 * * * *`). | **Phase-Decoupled Bursts**: Long autonomous `/goal` or overnight background runs that violate the human's historical circadian phase prior. |
-| **2. Micro Inter-Arrival Pacing (High-Frequency Cadence)** | **Coefficient of Variation** ($\text{CV} = \sigma_{\Delta t} / \mu_{\Delta t}$) & **Fano Factor** ($F = \sigma^2 / \mu$) | **Pink / Brownian Noise** ($\text{CV} > 0.60, F \approx 1\text{--}2$): Irregular cognitive pauses, context switches, and manual typing delays. | **Dirac Comb / Narrowband** ($\text{CV} \le 0.15$): Rigid, clockwork sleep intervals or unthrottled tight-loop saturation. | **Compound ReAct Oscillation** ($0.15 < \text{CV} \le 0.45$, $F \gg 4.0$): Alternating **2–15s LLM token-generation pauses** ("Think") followed by **millisecond parallel tool fan-out** ("Act"). |
-| **3. State-Space & Execution Lineage** | **Markov 2-Gram Surprisal** ($I = -\ln P(B \mid A)$) & **Vocabulary Diversity** ($k / (N+1)$) | **Bounded Working Set**: Moderate diversity; familiar GUI/CLI workflows (`bash` $\rightarrow$ `git`). | **Deterministic Rails** ($I \approx 0$, $k/(N+1) \le 0.10$): Executes the exact same script, binary hash, and target resource every run. | **High-Surprisal Exploration** ($I \ge 3.0$): Runtime interpreters (`node`, `python3`, IDE helpers) spawning novel Living-off-the-Land toolchains (`curl`, `grep`, `gcloud`, `ssh`). |
-| **4. Epistemic Error Feedback Loop** | **Failure-to-Total Ratio** & **Access-Denied Fano Burst** ($F_{\text{fail}}$) | **Sporadic Errors**: Occasional typos or permission denials; human stops or asks for access. | **Static Failure Mode**: If misconfigured, repeats the exact same failing call endlessly at fixed intervals. | **Epistemic Trial-and-Error**: Spikes in `resource_read_fail` / `HTTP 4xx` across *distinct* API methods as the LLM reads error outputs, mutates parameters, and retries. |
-| **5. Directional Payload Asymmetry** | **Producer-Consumer Byte Ratio** ($\rho = \frac{\text{Sent}}{\text{Sent} + \text{Recv}}$) | **Net Consumer** ($\rho < 0.25$): Browsing, pulling code, reading docs, streaming media. | **Symmetric or Fixed**: Predictable backup uploads or package downloads ($\sigma_{\text{bytes}} \approx 0$). | **Prompt-Stuffing Net Producer** ($\rho \ge 0.70$): Continuously serializing local codebases, DOM trees, or Cloud/Workspace docs into massive outbound LLM context windows (100 KB–2 MB/turn) while receiving compact token completions. |
+| **1. Diurnal Activity Timing (Off-Hours Weighting)** | **Quadratic Off-Hours Clock-Distance Multiplier** ($1 + \Delta h^2 / 72$ from 14:00 UTC) | **Work-Hours Concentrated**: Activity clusters within daytime working hours; deep overnight and weekend lulls. | **Uniform or Cron-Scheduled**: Either steady 24/7 execution or fixed wall-clock cron spikes (`0 * * * *`). | **Unattended Off-Hours Runs**: Long autonomous `/goal` or overnight background runs that continue generating egress well outside normal working hours. |
+| **2. Hourly Bucketed Pacing & Retry Dispersion** | **Hourly Spacing CV** ($\text{CV} = \sigma_{\bar{g}} / \mu_{\bar{g}}$) & **Hourly Fano Factor** ($F = \sigma^2 / \mu$) | **High Hourly Variance** ($\text{CV} > 0.60, F \approx 1\text{--}2$): Irregular active and idle intervals across hours due to meetings, context switches, and breaks. | **Rigid Hourly Rate** ($\text{CV} \le 0.15$): Near-constant hourly connection spacing on fixed schedules or tight polling loops. | **Sustained Polling + Bursty Retries** ($\text{CV} \le 0.35$ across $\ge 3$ active hours; $F \ge 4.0$ on denials): Steady multi-hour external callback pacing paired with super-Poisson bursts of API retries inside active hours. |
+| **3. Process Lineage & Resource Scope** | **Empirical Markov 2-Gram Surprisal** ($I = -\ln P(B \mid A)$) & **30-Day Active-Day History** | **Familiar Working Set**: Moderate diversity; recurring interactive workflows (`bash` $\rightarrow$ `git`). | **Fixed Resource Rails** ($I \approx 0$, `$dest_days >= 7`): Executes the exact same script, binary hash, and target cloud resources every run. | **High-Surprisal Tool Spawns & Scope Expansion** ($I \ge 3.0$, `$dest_days = 0`): Language runtimes and IDEs (`node`, `python3`, `cursor`, `claude`) spawning rare shell/cloud CLI children (`curl`, `gcloud`, `ssh`) or touching unseen repositories. |
+| **4. Permission-Denial Feedback Loop** | **30-Day Failure Z-Scores** & **Hourly Denial Fano Factor** ($F_{\text{fail}}$) | **Sporadic Errors**: Occasional typos or permission denials; human stops or requests access. | **Static Misconfiguration**: If broken, repeats the exact same failing call at fixed intervals. | **Iterative Parameter Probing**: Clustered bursts of `resource_*_fail` / `AccessDenied` across $\ge 3$ *distinct* API methods as the agent reads error outputs, mutates arguments, and retries. |
+| **5. Directional Payload Asymmetry** | **Producer-Consumer Byte Ratio** ($\rho = \frac{\text{Sent}}{\text{Sent} + \text{Recv} + 1}$) | **Net Consumer** ($\rho < 0.25$): Browsing, pulling code, reading docs, downloading packages. | **Predictable Volume**: Consistent scheduled backup uploads or artifact pulls ($\sigma_{30\text{d}}$ stable). | **Prompt-Stuffing Net Producer** ($\rho \ge 0.70$): Serializing local codebases, DOM trees, or Cloud/Workspace docs into large outbound LLM context requests while receiving compact token completions. |
 
 ---
 
@@ -43,14 +50,14 @@ In real enterprise telemetry, behavior rarely sits in a pure, isolated archetype
 
 ```mermaid
 flowchart TD
-    subgraph Venn["Behavioral Signal Space & Overlap Regimes"]
-        H["🧑 HUMAN (H)\n• Circadian Phase-Locked\n• High Inter-Arrival CV (>0.60)\n• Net Data Consumer (ρ < 0.25)"]
-        B["🤖 DETERMINISTIC BOT (M_bot)\n• Clockwork Cadence (CV <= 0.15)\n• Fixed Resource Rails (λ -> 0 on new targets)\n• Low Vocabulary Entropy (k/N <= 0.10)"]
-        AI["🧠 AGENTIC AI (M_ai)\n• ReAct Think-Act Bursts (Fano F >= 4.0)\n• High Markov Tool Surprisal (I >= 3.0)\n• Prompt-Stuffing Egress (ρ >= 0.70)\n• Epistemic API Trial-and-Error"]
+    subgraph Venn["Behavioral Statistical Space & Overlap Regimes"]
+        H["🧑 HUMAN (H)\n• Work-Hours Concentrated\n• High Hourly Spacing Variance (CV > 0.60)\n• Net Data Consumer (ρ < 0.25)"]
+        B["🤖 DETERMINISTIC BOT (M_bot)\n• Low Hourly Spacing CV (<= 0.15)\n• Fixed 30d Resource Scope (dest_days >= 7)\n• Static Process Lineage (I -> 0)"]
+        AI["🧠 AGENTIC AI (M_ai)\n• Super-Poisson Denial Bursts (Hourly Fano F >= 4.0)\n• High Markov Tool Surprisal (I >= 3.0)\n• Prompt-Stuffing Egress (ρ >= 0.70)\n• Multi-Method API Trial-and-Error"]
 
-        H_AI["⚡ Zone H ∩ M_ai: Copilot / IDE Agent\nHuman identity during work hours exhibiting\nsuper-human multi-sector velocity (MACD)\n+ Markov interpreter->shell chains"]
-        B_AI["🕵️ Zone M_bot ∩ M_ai: Headless Shadow Agent\n24/7 daemon or Service Account breaking\nout of fixed rails with novel repository scope\n+ bursty AccessDenied trial-and-error"]
-        H_B["⚙️ Zone H ∩ M_bot: Manual Batch / IaC Run\nHuman-triggered Terraform/script during work\nhours: high volume, low vocabulary diversity"]
+        H_AI["⚡ Zone H ∩ M_ai: Copilot / IDE Agent\nHuman identity during work hours exhibiting\n30d high-water mark HTTP breakout\n+ Markov interpreter->shell chains"]
+        B_AI["🕵️ Zone M_bot ∩ M_ai: Headless Shadow Agent\n24/7 daemon or Service Account breaking\nout of fixed rails with novel repository scope\n+ bursty AccessDenied retries"]
+        H_B["⚙️ Zone H ∩ M_bot: Manual Batch / IaC Run\nHuman-triggered Terraform/script during work\nhours: high volume on established resource scope"]
         ALL["🚨 Zone H ∩ M_bot ∩ M_ai: Compromised Identity / Swarm\n30d Human or SA baseline shifts into off-hours\nmulti-sector execution + discovery + rare egress"]
     end
 
@@ -64,25 +71,25 @@ flowchart TD
 ```
 
 1. **Zone $H \cap M_{\text{AI}}$ (Interactive Copilot / Shadow IDE Agent)**:
-   * **Signal Overlap**: Authenticated as a human user during normal working hours (passes basic circadian checks), but exhibits **instantaneous MACD velocity acceleration** across HTTP/API queries, **Markov 2-gram process surprisal** (IDE/Node/Python spawning shell recon tools), and **Producer-Consumer byte inversion** ($\rho \ge 0.70$).
+   * **Behavioral Overlap**: Authenticated as a human user during normal working hours, but exhibits a **30-day high-water mark breakout** in HTTP/API queries, **empirical Markov 2-gram process surprisal** (IDE/Node/Python spawning shell recon tools), and **Producer-Consumer byte inversion** ($\rho \ge 0.70$).
 2. **Zone $M_{\text{bot}} \cap M_{\text{AI}}$ (Headless Autonomous Agent / MCP Service Account)**:
-   * **Signal Overlap**: Runs unattended like a bot or cloud service account (`@*.iam.gserviceaccount.com`), so flat temporal cadence alone cannot distinguish it from a cron job. The differentiator is **Scope & Error Entropy**: a deterministic bot stays on its 30-day resource rails (`$dest_days >= 7`), whereas an autonomous agent exhibits **Cloud Repository Breadth Expansion (`$dest_days = 0`)** coupled with **Fano Burst Clustering ($F \ge 4.0$)** on permission denials as it probes the environment.
+   * **Behavioral Overlap**: Runs unattended like a bot or cloud service account (`@*.iam.gserviceaccount.com`), so steady hourly pacing alone cannot distinguish it from a cron job. The differentiator is **Scope Expansion & Failure Dispersion**: a deterministic bot stays on its 30-day resource rails (`$dest_days >= 7`), whereas an autonomous agent exhibits **Cloud Repository Breadth Expansion (`$dest_days = 0`)** coupled with **Hourly Fano Burst Clustering ($F \ge 4.0$)** across distinct denied API methods as it probes the environment.
 3. **Zone $H \cap M_{\text{bot}} \cap M_{\text{AI}}$ (Full Regime Shift / Shadow Agent Breakout)**:
-   * **Signal Overlap**: An entity whose 30-day prior is established as a human or narrow service account abruptly breaches multiple orthogonal sectors simultaneously ($D = \sqrt{\sum \max(0, Z_i)^2} \ge 3.5\sigma$), operates off-hours (von Mises penalty), and communicates with low-prevalence external AI gateways.
+   * **Behavioral Overlap**: An entity whose 30-day baseline is established as a human or narrow service account abruptly breaches multiple orthogonal sectors simultaneously ($D = \sqrt{\sum \max(0, Z_i)^2} \ge 3.5\sigma$), operates off-hours (amplified by the clock-distance multiplier), and communicates with low-prevalence external AI gateways.
 
 ---
 
-### 1.3 Using Prior Behavior to Judge Existing Behavior (Bayesian Regime Updating)
+### 1.3 Using 30-Day Historical Baselines to Contextualize Current Behavior
 
-Rather than treating every high-volume event as an alert, the UEBA harness uses **30-Day Pre-Computed Baselines (`metrics.*`)** as the **Conjugate Prior** ($\mu_0, \sigma_0, N_{\text{days}}$) and **Today's Multi-Stage Telemetry** as the **Observed Likelihood**:
+Rather than treating every high-volume event as an alert, the UEBA harness conditions today's multi-stage observations on **30-Day Pre-Computed Rolling Baselines (`metrics.*`)** ($\mu_{30\text{d}}, \sigma_{30\text{d}}, N_{\text{active\_days}}$) alongside cross-sectional fleet prevalence:
 
-$$\text{Posterior Anomaly Confidence} \propto P(\text{Observed Signature} \mid M_{\text{AI}}) \times P_{\text{30d Prior}}(\text{Regime Shift from } H \text{ or } M_{\text{bot}})$$
+$$\text{Composite Anomaly Score} = f\Big(\text{Today's Multi-Stage Observation},\; \underbrace{\mu_{30\text{d}},\, \sigma_{30\text{d}},\, N_{\text{active\_days}}}_{\text{30-Day Historical Baseline}},\; \underbrace{k_{\text{fleet}}}_{\text{Fleet Prevalence}}\Big)$$
 
-* **Human Prior $\rightarrow$ Agentic Likelihood**: When `num_metric_periods >= 5` establishes a stable human baseline ($\mu_0, \sigma_0$) and today's observation triggers a multi-sector Euclidean breakout ($D^2 \ge 12.25$) or off-hours von Mises surge, the 30-day prior proves the activity is a **behavioral regime shift**, not a naturally heavy developer workload.
-* **Cold-Start / Ephemeral Identity Prior (`Option 1` Piecewise Unification)**: Newly provisioned Shadow AI service accounts, ephemeral containers, or developer VMs (`num_metric_periods <= 4`) lack a mature 30-day variance estimate. Instead of dropping cold-start entities behind a rigid `>= 7` active-day gate, each `metrics.*` query implements a **Piecewise Two-Part Hurdle** (`if($active_days <= 4, $hurdle_score, $mature_30d_score)` exposed as `$unified_threat_score`), scoring cold-start entities via logarithmic volume/dispersion hurdles while scoring established identities (`>= 5` active days) against their 30-day parametric prior.
-* **Service Account Prior $\rightarrow$ Exploratory Likelihood**: When a cloud service account has a zero-baseline prior (`$dest_days = 0`) on a sensitive data repository or a novel binary (`$d_days <= 4` in `metrics.file_executions_total`), the prior acts as a **Discrete Hurdle Gate**, elevating first-time autonomous exploration even at low absolute event counts.
-* **Fleet Cross-Sectional Prior $\rightarrow$ Prevalence Dampening**: When evaluating new SDK User-Agents (`hybrid_metric_http_ua_prevalence_2stage.yl2`) or Workspace downloads (`part_of_the_whole_triad_multilevel.yl2`), the enterprise fleet distribution acts as a spatial prior—suppressing company-wide rollouts ($k_{\text{fleet}} \gg 10$) while amplifying isolated Shadow AI adoption ($k_{\text{fleet}} \le 3$).
-* **Cross-Query UDM Loopback Convergence (`Option 3` Connective Tissue)**: As `PlaybookRunner` executes **Wave 1** (`Queries 1, 2A, 3A, 3B, 4A, 5, 6, 7, 8A, 8B, 9A, 9B`), matched entities are ingested as `GENERIC_EVENT` records (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`, `metadata.product_log_id = $run_id`) and verified via a read-after-write polling barrier (`verify_udm_run_indexed()`). **Wave 2** (`Query 2B` and `Query 4B`) reads those indexed UDM candidate keys (`:q[0-9]+_query_2a` and `:q[0-9]+_query_4a`) to gate sub-hour raw cadence/dispersion queries without risking 1M-row enterprise scan caps. Finally, **Wave 3** (**Scenario 10 — `Query 10`**) unions all upstream scenario tags (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-9]`)`) in a single 3-stage Capstone query that deduplicates per scenario, computes cross-scenario Euclidean L2 convergence, and pivots winning entities directly into raw forensic telemetry.
+* **Mature 30-Day Baseline $\rightarrow$ Regime-Shift Z-Scores**: When `num_metric_periods >= 5` establishes a stable historical baseline ($\mu_{30\text{d}}, \sigma_{30\text{d}}$) and today's observation triggers a multi-sector Euclidean breakout ($D^2 \ge 12.25$) or an off-hours weighted egress surge, the 30-day history distinguishes a **behavioral regime shift** from a consistently heavy developer workload.
+* **Cold-Start / Ephemeral Identity Handling (`Option 1` Piecewise Unification)**: Newly provisioned Shadow AI service accounts, ephemeral containers, or developer VMs (`num_metric_periods <= 4`) lack a reliable 30-day standard deviation. Instead of dropping cold-start entities behind a rigid `>= 7` active-day gate, each `metrics.*` query implements a **Piecewise Two-Part Hurdle** (`if($active_days <= 4, $hurdle_score, $mature_30d_score)` exposed as `$unified_threat_score`), scoring cold-start entities via log-scaled volume and cardinality hurdles while scoring established identities (`>= 5` active days) against their 30-day parametric Z-score.
+* **Zero-History Scope Hurdles (`$dest_days = 0` / `<= 4`)**: When a cloud service account touches a sensitive data repository with zero 30-day history (`$dest_days = 0`) or a host launches a novel binary (`$d_days <= 4` in `metrics.file_executions_total`), the active-day counter acts as a **Discrete Scope Gate**, surfacing first-time autonomous exploration even at moderate event counts.
+* **Cross-Sectional Fleet Prevalence Dampening**: When evaluating HTTP SDK User-Agents (`Query 5`) or rare DNS domains (`Query 8A`), enterprise fleet prevalence suppresses organization-wide software rollouts ($k_{\text{fleet}} \gg 10$) while isolating localized Shadow AI adoption ($k_{\text{fleet}} \le 3$).
+* **Cross-Query UDM Loopback Convergence (`Option 3` Connective Tissue)**: As `PlaybookRunner` executes **Wave 1** (`Queries 1, 2A, 3A, 3B, 4A, 5, 6, 7, 8A, 8B, 9A, 9B`), matched entities are ingested as `GENERIC_EVENT` records (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`, `metadata.product_log_id = $run_id`) and verified via a read-after-write polling barrier (`verify_udm_run_indexed()`). **Wave 2** (`Query 2B` and `Query 4B`) reads those indexed UDM candidate keys (`:q[0-9]+_query_2a` and `:q[0-9]+_query_4a`) to gate hourly raw pacing/dispersion queries without risking 1M-row enterprise scan caps. Finally, **Wave 3** (**Scenario 10 — `Query 10`**) unions all upstream scenario tags (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-9]`)`) in a single 3-stage Capstone query that deduplicates per scenario, computes cross-scenario Euclidean L2 convergence, and pivots winning entities directly into raw forensic telemetry.
 
 ---
 
@@ -90,14 +97,14 @@ $$\text{Posterior Anomaly Confidence} \propto P(\text{Observed Signature} \mid M
 
 | Scenario | Architecture Pattern & Execution Wave | Behavioral Signature & Venn Regime | Query Specification (`secops-risk-metrics-multistage` & `secops-statistical-hunter`) |
 | :---: | :--- | :--- | :--- |
-| **1** | **Combined Single Query** (Wave 1 $\rightarrow$ Exports `:q01_`) | **Human-to-Agent Regime Shift & Nocturnal Autonomy** ($H \to M_{\text{AI}}$) | **Query 1**: 3-Stage Holistic HTTP Velocity (`metrics.http_queries_total`), Outbound Egress (`metrics.network_bytes_outbound`), and Circadian von Mises Off-Hours Distance (Option 1 Piecewise + $D^2 \ge 12.25$). |
-| **2** | **Split `2A -> UDM -> 2B`** (2A in Wave 1 $\rightarrow$ 2B in Wave 2) | **ReAct "Think-Act-Observe" Heartbeat vs. Bot vs. Human** ($M_{\text{bot}} \ vs.\ M_{\text{AI}}$) | **Query 2A**: 2-Stage MACD Dual-Spine HTTP Velocity Breakout (`metrics.http_queries_total`, exports `:q02_query_2a_`).<br>**Query 2B**: 4-Stage UDM-Gated Inter-Arrival Coefficient of Variation ($\text{CV} \le 0.35$) on 2A candidate hosts (`exports :q03_query_2b_`). |
-| **3** | **Parallel Wave 1 Pair** (Both in Wave 1 $\rightarrow$ Export `:q04_`, `:q05_`) | **Shadow AI Runtimes, CLI Agents & Interpreter-to-Shell Spawns** ($H \cap M_{\text{AI}}$) | **Query 3A**: 4-Stage Roll-Up Sector Fusion (`metrics.file_executions_total` novel/hot binaries + `metrics.network_bytes_outbound`).<br>**Query 3B**: 2-Stage Markov 2-Gram Transition Surprisal ($I = -\ln P(\text{Child} \mid \text{Parent}) \ge 3.0$) on Interpreter/IDE $\rightarrow$ Shell/CLI spawns. |
-| **4** | **Split `4A -> UDM -> 4B`** (4A in Wave 1 $\rightarrow$ 4B in Wave 2) | **Autonomous Cloud Agent Recon & Epistemic Trial-and-Error** ($M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 4A**: 2-Stage Dual-Branch Cloud Repository Scope & Caller IP Outlier (4-family `metrics.resource_*_total`, exports `:q06_query_4a_`).<br>**Query 4B**: 4-Stage UDM-Gated Poisson Fano Factor Dispersion ($F = \sigma^2/\mu \ge 4.0$) on 4A candidate identities (`exports :q07_query_4b_`). |
-| **5** | **Combined Single Query** (Wave 1 $\rightarrow$ Exports `:q08_`) | **Shadow LLM SDK User-Agents & Prompt-Stuffing Byte Inversion** ($H \cap M_{\text{AI}}$) | **Query 5**: 4-Stage HTTP User-Agent Fleet Prevalence (`metrics.http_queries_total`, $k_{\text{fleet}} \le 3$) fused with Producer-Consumer Directional Byte Ratio ($\rho = \frac{\text{sent}}{\text{sent}+\text{recv}} \ge 0.70$) & Outbound Byte Z-Score. |
-| **6** | **Combined Single Query** (Wave 1 $\rightarrow$ Exports `:q09_`) | **Bulk RAG Knowledge Harvesting & Low-and-Slow Vector Sync** ($H \cap M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 6**: 3-Stage Google Workspace Activity Triad (`auth`, `download`, `change` vs. 30d personal baselines) fused with Longitudinal Outbound Byte CUSUM Drift (`metrics.network_bytes_outbound`, slack $k=0.5\sigma$). |
-| **7** | **Combined Single Query** (Wave 1 $\rightarrow$ Exports `:q10_`) | **Service Account Rail Breakout, Epistemic CRUD Denials & Egress** ($M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 7**: 4-Stage Unsanctioned Service Account Cloud CRUD Failure & Provisioning Roll-Up (`resource_read_fail`, `resource_written_fail`, `resource_creation_fail`, `resource_creation_success`) fused with Outbound Network Egress (`metrics.network_bytes_outbound`). |
-| **8** | **Parallel Wave 1 Pair** (Both in Wave 1 $\rightarrow$ Export `:q11_`, `:q12_`) | **Rare AI Gateway Resolution, NXDOMAIN Probing & High-Entropy DNS** ($H \cap M_{\text{AI}}$ & $M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 8A**: 3-Stage DNS Activity Triad (`metrics.dns_queries_total` + `metrics.dns_queries_fail`) joined with `DERIVED_CONTEXT` Rare Domain Prevalence ($\le 3$ hosts in 10d Entity Graph).<br>**Query 8B**: 2-Stage DNS Subdomain Shannon Character-Class Entropy & Length Ratio (`network.dns.questions.name` length $\ge 45$, `$shannon_entropy_score >= 7.5`). |
+| **1** | **Combined Single Query** (Wave 1 $\rightarrow$ Exports `:q01_`) | **Human-to-Agent Regime Shift & Off-Hours Autonomy** ($H \to M_{\text{AI}}$) | **Query 1**: 3-Stage Holistic HTTP Volume (`metrics.http_queries_total`), Outbound Egress (`metrics.network_bytes_outbound`), and Off-Hours Clock-Distance Multiplier (Option 1 Piecewise + $D^2 \ge 12.25$). |
+| **2** | **Split `2A -> UDM -> 2B`** (2A in Wave 1 $\rightarrow$ 2B in Wave 2) | **30-Day Peak Breakout & Steady Hourly Callback Pacing** ($M_{\text{bot}} \ vs.\ M_{\text{AI}}$) | **Query 2A**: 2-Stage 30-Day High-Water Mark HTTP Breakout Z-Score (`metrics.http_queries_total`, exports `:q02_query_2a_`).<br>**Query 2B**: 4-Stage UDM-Gated Hourly Connection Spacing Coefficient of Variation ($\text{CV} \le 0.35$ across $\ge 3$ active hours) on 2A candidate hosts (`exports :q03_query_2b_`). |
+| **3** | **Parallel Wave 1 Pair** (Both in Wave 1 $\rightarrow$ Export `:q04_`, `:q05_`) | **Shadow AI Runtimes, CLI Agents & Interpreter-to-Shell Spawns** ($H \cap M_{\text{AI}}$) | **Query 3A**: 4-Stage Roll-Up Sector Fusion (`metrics.file_executions_total` novel/hot binaries + `metrics.network_bytes_outbound`).<br>**Query 3B**: 2-Stage Empirical 1st-Order Markov Transition Surprisal ($I = -\ln P(\text{Child} \mid \text{Parent})$) on Interpreter/IDE $\rightarrow$ Shell/CLI spawns. |
+| **4** | **Split `4A -> UDM -> 4B`** (4A in Wave 1 $\rightarrow$ 4B in Wave 2) | **Autonomous Cloud Recon & Multi-Method Denial Bursts** ($M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 4A**: 2-Stage Dual-Branch Cloud Repository Scope & Caller IP Outlier (4-family `metrics.resource_*_total`, exports `:q06_query_4a_`).<br>**Query 4B**: 4-Stage UDM-Gated Hourly Fano Factor Dispersion ($F = \sigma^2/\mu \ge 4.0$) on Denied Cloud CRUD Calls for 4A candidate identities (`exports :q07_query_4b_`). |
+| **5** | **Combined Single Query** (Wave 1 $\rightarrow$ Exports `:q08_`) | **Shadow LLM SDK User-Agents & Prompt-Stuffing Byte Inversion** ($H \cap M_{\text{AI}}$) | **Query 5**: 4-Stage HTTP User-Agent Fleet Prevalence (`metrics.http_queries_total`, $k_{\text{fleet}} \le 3$) fused with Producer-Consumer Directional Byte Ratio ($\rho = \frac{\text{sent}}{\text{sent}+\text{recv}+1} \ge 0.70$) & Outbound Byte Z-Score. |
+| **6** | **Combined Single Query** (Wave 1 $\rightarrow$ Exports `:q09_`) | **Bulk RAG Knowledge Harvesting & Multi-Day Egress Drift** ($H \cap M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 6**: 3-Stage Google Workspace Activity Triad (`auth`, `download`, `change` vs. 30d personal baselines) fused with Windowed One-Sided Cumulative Exceedance (Tabular CUSUM Approximation on `metrics.network_bytes_outbound`, slack $k=0.5\sigma$). |
+| **7** | **Combined Single Query** (Wave 1 $\rightarrow$ Exports `:q10_`) | **Service Account Rail Breakout, Cloud CRUD Denials & Egress** ($M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 7**: 4-Stage Unsanctioned Service Account Cloud CRUD Failure & Provisioning Roll-Up (`resource_read_fail`, `resource_written_fail`, `resource_creation_fail`, `resource_creation_success`) fused with Outbound Network Egress (`metrics.network_bytes_outbound`). |
+| **8** | **Parallel Wave 1 Pair** (Both in Wave 1 $\rightarrow$ Export `:q11_`, `:q12_`) | **Rare AI Gateway Resolution, NXDOMAIN Surges & Long Encoded FQDNs** ($H \cap M_{\text{AI}}$ & $M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 8A**: 3-Stage DNS Activity Triad (`metrics.dns_queries_total` + `metrics.dns_queries_fail`) joined with `DERIVED_CONTEXT` Rare Domain Prevalence ($\le 3$ hosts in 10d Entity Graph).<br>**Query 8B**: 2-Stage Log-Scaled DNS FQDN Length & Query Repetition Heuristic (`network.dns.questions.name` length $\ge 45$, $\ge 5$ queries, `$fqdn_length_score >= 7.5`). |
 | **9** | **Parallel Wave 1 Pair** (Both in Wave 1 $\rightarrow$ Export `:q13_`, `:q14_`) | **External Cloud/AI ASN Login Multiplexing & EDR Alert Velocity Fusion** ($H \cap M_{\text{bot}} \cap M_{\text{AI}}$) | **Query 9A**: 2-Stage External Cloud ASN & OAuth Application Credential Multiplexing (`metrics.auth_attempts_total` by `organization_name` and `target.application`, `USER`).<br>**Query 9B**: 4-Stage Roll-Up Sector Fusion (`metrics.alert_event_name_count` across distinct EDR/DLP rules + `metrics.network_bytes_outbound`, `ASSET`). |
 | **10** | **Unified Single Capstone Query** (Wave 3 — Final Rollup & Forensic Bridge) | **Multi-Scenario Euclidean Convergence & Raw Telemetry Forensic Bridge** ($H \cap M_{\text{AI}}$ & $M_{\text{bot}} \cap M_{\text{AI}} \to M_{\text{AI}}$) | **Query 10**: 3-Stage Unified Capstone Rollup & Forensic Bridge (`re.regex(security_result.rule_name, ":q[0-9]+_query_[1-9]")`, Stage 1 per-scenario dedup $\rightarrow$ Stage 2 cross-scenario L2 convergence `$distinct_scenarios_matched >= 2` $\rightarrow$ Stage 3 raw `PROCESS_LAUNCH` / `NETWORK_CONNECTION` / `RESOURCE_READ` pivot). |
 
@@ -107,19 +114,19 @@ $$\text{Posterior Anomaly Confidence} \propto P(\text{Observed Signature} \mid M
 
 ---
 
-### Scenario 1: Holistic Cross-Resource — Human-to-Agent Regime Shift & Nocturnal Autonomy (Combined Single Query)
+### Scenario 1: Holistic Cross-Resource — Human-to-Agent Regime Shift & Off-Hours Autonomy (Combined Single Query)
 
-When a human engineer attaches an autonomous agent to their corporate identity—or leaves a ReAct loop running unattended—their account exhibits a simultaneous surge in **outbound API/web transactions** and **outbound byte volume** (context-window uploads), frequently drifting into off-hours windows where their 30-day circadian prior expects silence. Because both signals share `principal.user.userid` and `by 1d` bucketing, **Query 1** fuses `metrics.http_queries_total`, `metrics.network_bytes_outbound`, and the **Circadian von Mises off-hours circular penalty** into a single 3-stage query.
+When a human engineer attaches an autonomous agent to their corporate identity—or leaves a ReAct loop running unattended—their account exhibits a simultaneous surge in **outbound API/web transactions** and **outbound byte volume** (context-window uploads), frequently continuing into overnight hours outside normal daytime work schedules. Because both signals share `principal.user.userid` and `by 1d` bucketing, **Query 1** fuses `metrics.http_queries_total` and `metrics.network_bytes_outbound` with a **Quadratic Off-Hours Clock-Distance Multiplier** ($1 + \Delta h^2 / 72$, where $\Delta h \in [0, 12]$ is the circular UTC hour distance from 14:00 UTC, scaling off-hours egress Z-scores from $1.0\times$ up to $3.0\times$) in a single 3-stage query.
 
-#### Query 1: 3-Stage Holistic HTTP Velocity, Outbound Egress & Circadian von Mises Fusion (`secops-risk-metrics-multistage`)
+#### Query 1: 3-Stage Holistic HTTP Volume, Outbound Egress & Off-Hours Clock-Distance Fusion (`secops-risk-metrics-multistage`)
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// ARCHITECTURE: 3-STAGE HOLISTIC HTTP, OUTBOUND EGRESS & CIRCADIAN VON MISES FUSION
+// ARCHITECTURE: 3-STAGE HOLISTIC HTTP, OUTBOUND EGRESS & OFF-HOURS CLOCK-DISTANCE FUSION
 // Goal: Detect human and cold-start identities shifting into high-velocity or off-hours Shadow AI agent loops across Web/API requests and outbound byte volume.
-// Statistical Model: Option 1 Piecewise Cold-Start Hurdle + Multi-Sector Euclidean Threat Norm + Circadian von Mises Distance
+// Statistical Model: Option 1 Piecewise Cold-Start Hurdle + Multi-Sector Euclidean Threat Norm + Quadratic Off-Hours Clock-Distance Multiplier
 // ============================================================================
 
 stage sector_a {
@@ -183,8 +190,8 @@ stage sector_b {
     $raw_diff = math.abs($event_hour - 14)
     $inverted_dist = 24 - $raw_diff
     $circ_dist = if($raw_diff > 12, $inverted_dist, $raw_diff)
-    $von_mises_arc = math.pow($circ_dist, 2)
-    $temporal_multiplier = 1.0 + ($von_mises_arc / 72.0)
+    $sq_hour_dist = math.pow($circ_dist, 2)
+    $temporal_multiplier = 1.0 + ($sq_hour_dist / 72.0)
 }
 
 $entity = $sector_a.entity
@@ -203,8 +210,8 @@ outcome:
   $z_a_piecewise = max($sector_a.z_a_piecewise)
   $z_b_piecewise = max($sector_b.z_b_piecewise)
   $temporal_multiplier = max($sector_b.temporal_multiplier)
-  $z_b_circadian = $z_b_piecewise * $temporal_multiplier
-  $composite_threat_norm_sq = ($z_a_piecewise * $z_a_piecewise) + ($z_b_circadian * $z_b_circadian)
+  $z_b_offhours = $z_b_piecewise * $temporal_multiplier
+  $composite_threat_norm_sq = ($z_a_piecewise * $z_a_piecewise) + ($z_b_offhours * $z_b_offhours)
   $unified_threat_score = math.sqrt($composite_threat_norm_sq)
 
 condition:
@@ -217,21 +224,21 @@ order:
 
 ---
 
-### Scenario 2: Signal Processing Cadence — The ReAct "Think-Act-Observe" Heartbeat (`2A -> UDM -> 2B` Split)
+### Scenario 2: Multi-Horizon Pacing — 30-Day High-Water Mark Breakout & Hourly Callback Regularity (`2A -> UDM -> 2B` Split)
 
-In the frequency and time domains, an autonomous agent's ReAct loop produces two signatures across incompatible time horizons (`by 1d` vs. `by 1h`):
-1. **Macro Momentum Breakout (`Query 2A`, Wave 1)**: When an engineer kicks off an agentic task, daily HTTP/API velocity accelerates past both the 30-day mean ($\mu$) and the 30-day historical maximum ($Z_{\text{fast}} > Z_{\text{slow}}$). `PlaybookRunner` exports matched hosts to UDM (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH` with rule suffix `:q02_query_2a_...`).
-2. **UDM-Gated Micro Quasi-Periodic Cadence (`Query 2B`, Wave 2)**: Computing inter-arrival jitter ($\text{CV} = \sigma_{\Delta t} / \mu_{\Delta t} \le 0.35$) across every `NETWORK_CONNECTION` in a large enterprise risks hitting Chronicle's 1M-row stage cap. `Query 2B` solves this by reading `Query 2A`'s UDM loopback candidates in Stage 1 (`re.regex(security_result.rule_name, `:q[0-9]+_query_2a`)`) and evaluating `by 1h` inter-arrival pacing strictly on those candidate hosts.
+Autonomous agent loops generate two complementary signatures across incompatible time horizons (`by 1d` vs. `by 1h`):
+1. **30-Day High-Water Mark HTTP Breakout (`Query 2A`, Wave 1)**: When an engineer starts an agentic workload, daily HTTP/API volume jumps past both the 30-day mean ($\mu_{30\text{d}}$) and the 30-day historical peak (`max`), boosting the standard Z-score via $\frac{\text{observed} - \text{hist\_max}}{\sigma} \cdot \frac{\text{observed}}{\text{hist\_max}}$ whenever a new 30-day high is set. `PlaybookRunner` exports matched hosts to UDM (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH` with rule suffix `:q02_query_2a_...`).
+2. **UDM-Gated Hourly Connection Spacing Regularity (`Query 2B`, Wave 2)**: Because YARA-L aggregates over bucketed windows rather than subtracting consecutive packet timestamps ($t_i - t_{i-1}$), `Query 2B` computes mean intra-hour connection spacing $\bar{g}_h = \frac{\max(t) - \min(t)}{N_h + 1}$ within `1h` buckets (`network.sent_bytes > 500` to external IPs) and evaluates the **Coefficient of Variation ($\text{CV} = \sigma_{\bar{g}} / \mu_{\bar{g}} \le 0.35$)** across $\ge 3$ active hours. Reading `Query 2A`'s UDM loopback candidates in Stage 1 (`re.regex(security_result.rule_name, `:q[0-9]+_query_2a`)`) prevents scanning enterprise-wide `NETWORK_CONNECTION` telemetry unseeded.
 
-#### Query 2A: 2-Stage MACD Dual-Spine Momentum Velocity Breakout on HTTP/API Traffic (`secops-risk-metrics-multistage`)
+#### Query 2A: 2-Stage 30-Day High-Water Mark HTTP Volume Breakout (`secops-risk-metrics-multistage`)
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// ARCHITECTURE: 2-STAGE MACD DUAL-SPINE MOMENTUM VELOCITY PIPELINE
-// Goal: Isolate sudden intraday/daily velocity acceleration in HTTP/API requests when an autonomous agent loop starts on cold-start or mature hosts.
-// Statistical Model: Option 1 Piecewise Cold-Start Hurdle + MACD Momentum Velocity Divergence (macd_momentum_velocity_2stage.yl2)
+// ARCHITECTURE: 2-STAGE 30-DAY HIGH-WATER MARK HTTP VOLUME BREAKOUT PIPELINE
+// Goal: Isolate sudden daily HTTP/API request breakouts above both the 30-day mean and 30-day historical maximum on cold-start or mature hosts.
+// Statistical Model: Option 1 Piecewise Cold-Start Hurdle + 30-Day High-Water Mark Breakout Z-Score
 // ============================================================================
 
 stage stage1_extract {
@@ -278,45 +285,45 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
   $hist_max = max($stage1_extract.historical_max)
 
-  $fast_diff = $observed - $hist_avg
+  $mean_diff = $observed - $hist_avg
   $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
-  $fast_z = $fast_diff / $safe_stddev
+  $mean_z = $mean_diff / $safe_stddev
 
-  $slow_diff = $hist_max - $hist_avg
-  $slow_z = $slow_diff / $safe_stddev
+  $max_diff = $hist_max - $hist_avg
+  $max_z = $max_diff / $safe_stddev
 
-  $macd_diff = $fast_z - $slow_z
+  $peak_excess_z = $mean_z - $max_z
   $safe_max = if($hist_max > 0, $hist_max, 1.0)
-  $velocity_ratio = $observed / $safe_max
+  $peak_ratio = $observed / $safe_max
 
-  $scaled_diff = $macd_diff * $velocity_ratio
-  $breakout_score = $fast_z + $scaled_diff
-  $macd_momentum_score = if($macd_diff > 0, $breakout_score, $fast_z)
+  $scaled_excess = $peak_excess_z * $peak_ratio
+  $breakout_score = $mean_z + $scaled_excess
+  $high_water_breakout_z = if($peak_excess_z > 0, $breakout_score, $mean_z)
 
-  // Option 1 Piecewise Cold-Start Hurdle (<= 4 active days) vs Mature 30d MACD Score (>= 5 active days)
+  // Option 1 Piecewise Cold-Start Hurdle (<= 4 active days) vs Mature 30d High-Water Mark Breakout Z-Score (>= 5 active days)
   $hurdle_velocity_score = math.log($observed + 1.0) * 0.75
-  $unified_threat_score = if($active_days <= 4, $hurdle_velocity_score, $macd_momentum_score)
+  $unified_threat_score = if($active_days <= 4, $hurdle_velocity_score, $high_water_breakout_z)
   $z_score = $unified_threat_score
 
 condition:
   (
     ($active_days <= 4 and $observed >= 100 and $distinct_hosts_contacted >= 3 and $unified_threat_score >= 3.5)
-    or ($active_days >= 5 and $fast_z >= 3.0 and $unified_threat_score >= 3.5)
+    or ($active_days >= 5 and $mean_z >= 3.0 and $unified_threat_score >= 3.5)
   )
 
 order:
   $unified_threat_score desc
 ```
 
-#### Query 2B: 4-Stage UDM-Gated ReAct Inference Pacing via Inter-Arrival Coefficient of Variation (`secops-statistical-hunter`)
+#### Query 2B: 4-Stage UDM-Gated Hourly Connection Spacing Coefficient of Variation (`secops-statistical-hunter`)
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// ARCHITECTURE: 4-STAGE UDM-GATED REACT INTER-ARRIVAL JITTER & FLEET PREVALENCE PIPELINE
-// Goal: Evaluate quasi-periodic ReAct inference callbacks (CV <= 0.35) strictly on candidate hosts surfaced by Query 2A via UDM Loopback.
-// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Coefficient of Variation (CV = sigma / mu)
+// ARCHITECTURE: 4-STAGE UDM-GATED HOURLY CONNECTION SPACING REGULARITY PIPELINE
+// Goal: Evaluate sustained, low-variance hourly outbound callback spacing (CV <= 0.35 across >= 3 active hours) strictly on candidate hosts surfaced by Query 2A via UDM Loopback.
+// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Hourly Mean-Gap Coefficient of Variation (CV = sigma / mu)
 // ============================================================================
 
 stage stage1_upstream_2a_candidates {
@@ -381,7 +388,7 @@ match:
   $host, $target_ip
 
 outcome:
-  $upstream_macd_z = max($stage1_upstream_2a_candidates.upstream_2a_z)
+  $upstream_2a_score = max($stage1_upstream_2a_candidates.upstream_2a_z)
   $observation_count = max($timing_stats.total_conns)
   $baseline_active_samples = max($timing_stats.active_hours)
   $baseline_mean = max($timing_stats.mean_gap)
@@ -409,8 +416,8 @@ order:
 
 On endpoints and developer workstations, Shadow AI agents operate by running local inference binaries (`ollama`, `llama-server`, `vllm`, `litellm`) or agentic CLI/IDE harnesses (`node`, `python3`, `cursor`, `claude`, `aider`) that autonomously invoke system binaries (`bash`, `sh`, `curl`, `git`, `ssh`, `gcloud`, `aws`, `kubectl`).
 
-* **Query 3A (`secops-risk-metrics-multistage`)** rolls up 30-day per-binary process execution baselines (`metrics.file_executions_total`) to flag hosts executing novel (`$d_days = 0`) or surging (`$d_z >= 3.0`) binaries alongside a 30-day outbound network byte surge.
-* **Query 3B (`secops-statistical-hunter`)** models parent-to-child process launches as a **first-order Markov chain**, computing the information surprisal $I = -\ln P(\text{Child} \mid \text{Parent})$ to isolate rare interpreter-to-shell tool execution transitions.
+* **Query 3A (`secops-risk-metrics-multistage`)** rolls up 30-day per-binary process execution baselines (`metrics.file_executions_total`) to flag hosts executing novel (`$d_days <= 4`) or surging (`$d_z_raw >= 3.0`) binaries alongside a 30-day outbound network byte surge.
+* **Query 3B (`secops-statistical-hunter`)** models daily parent-to-child process launches as an **empirical first-order Markov chain**, computing Shannon self-information (surprisal) $I = -\ln P(\text{Child} \mid \text{Parent}) = \ln N_{\text{parent}} - \ln N_{\text{parent}\to\text{child}}$ (with a $2\times$ low-frequency rarity multiplier when `$transition_launches <= 2`) to isolate rare interpreter-to-shell tool execution transitions.
 
 #### Query 3A: 4-Stage Roll-Up Sector Fusion on Process Execution Rarity and Network Egress (`secops-risk-metrics-multistage`)
 
@@ -631,11 +638,11 @@ order:
 
 ---
 
-### Scenario 4: Narrow Context (Cloud Control Plane) — Autonomous Cloud Recon & Epistemic Trial-and-Error
+### Scenario 4: Narrow Context (Cloud Control Plane) — Autonomous Cloud Recon & Multi-Method Denial Bursts
 
 When an AI agent is connected to a Cloud environment (via an MCP server, LangChain tool, or leaked workload identity), its behavior diverges sharply from deterministic Infrastructure-as-Code (`M_bot`):
 1. **Repository Scope & Caller Origin Drift (`Query 4A`)**: A deterministic service account touches the exact same buckets, secrets, and tables from the same caller IPs every day. An autonomous agent expands into **unseen cloud repositories (`$dest_days = 0`)** or invokes CRUD operations from **unseen caller IPs** (e.g., a developer laptop or external SaaS runner using a service account token).
-2. **Epistemic Trial-and-Error Bursting (`Query 4B`)**: Because LLMs frequently guess resource names, IAM permissions, or CLI flags, agentic cloud exploration produces synchronized bursts of failed/denied cloud API calls (`Fano Factor F >= 4.0`) across multiple distinct API methods.
+2. **Hourly Bucketed Denial Dispersion (`Query 4B`)**: Because LLMs frequently guess resource names, IAM permissions, or CLI flags, agentic cloud exploration produces clustered bursts of failed/denied cloud API calls (`by 1h` bucketed **Fano Factor $F = \sigma^2/\mu \ge 4.0$** across $\ge 2$ active hours) spanning $\ge 3$ distinct `product_event_type` API methods.
 
 #### Query 4A: 2-Stage Dual-Branch Cloud Repository Scope & Caller IP Outlier (`secops-risk-metrics-multistage`)
 
@@ -811,15 +818,15 @@ order:
   $composite_risk desc
 ```
 
-#### Query 4B: 4-Stage UDM-Gated Poisson Fano Factor Dispersion on Epistemic Cloud API Denials (`secops-statistical-hunter`)
+#### Query 4B: 4-Stage UDM-Gated Hourly Fano Factor Dispersion on Denied Cloud API Calls (`secops-statistical-hunter`)
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// ARCHITECTURE: 4-STAGE UDM-GATED POISSON DISPERSION / FANO FACTOR CLUSTERING PIPELINE
-// Goal: Detect agentic trial-and-error cloud reconnaissance (Fano F >= 4.0) strictly on candidate identities surfaced by Query 4A via UDM Loopback.
-// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson Dispersion via Fano Factor (F = sigma^2 / mu)
+// ARCHITECTURE: 4-STAGE UDM-GATED HOURLY POISSON DISPERSION / FANO FACTOR CLUSTERING PIPELINE
+// Goal: Detect clustered multi-method cloud API denial bursts (hourly Fano F >= 4.0) strictly on candidate identities surfaced by Query 4A via UDM Loopback.
+// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Hourly Bucketed Fano Factor (F = sigma^2 / mu)
 // ============================================================================
 
 stage stage1_upstream_4a_candidates {
@@ -1041,19 +1048,19 @@ order:
 
 ---
 
-### Scenario 6: Narrow Context (SaaS & Workspace Data Plane) — Bulk RAG Harvesting & Low-and-Slow Sync (Combined Single Query)
+### Scenario 6: Narrow Context (SaaS & Workspace Data Plane) — Bulk RAG Harvesting & Multi-Day Egress Drift (Combined Single Query)
 
-Shadow AI pipelines frequently connect to Google Workspace (Drive, Docs, Gmail) via OAuth tokens or browser-session cookies to build local vector databases (Retrieval-Augmented Generation / RAG) or summarize executive communications. Because both signals key on `principal.user.userid`, **Query 6** joins the **Google Workspace Activity Triad** (`workspace_auth_attempts_total`, `workspace_total_download_actions`, `workspace_total_change_actions`) with **Page's Cumulative Sum (CUSUM) Outbound Byte Drift** (`metrics.network_bytes_outbound`) in a single 3-stage query.
+Shadow AI pipelines frequently connect to Google Workspace (Drive, Docs, Gmail) via OAuth tokens or browser-session cookies to build local vector databases (Retrieval-Augmented Generation / RAG) or summarize executive communications. Because both signals key on `principal.user.userid`, **Query 6** joins the **Google Workspace Activity Triad** (`workspace_auth_attempts_total`, `workspace_total_download_actions`, `workspace_total_change_actions`) with **Windowed One-Sided Cumulative Exceedance (Tabular CUSUM Approximation)** on `metrics.network_bytes_outbound` in a single 3-stage query. *(Note: Because YARA-L `sum()` aggregates over a window without recursive per-day state resets, `egress_cusum` sums positive daily exceedances above a $0.5\sigma$ slack threshold across the lookback window to surface sustained multi-day exfiltration that stays below $3\sigma$ on any single day.)*
 
-#### Query 6: 3-Stage Workspace Activity Triad & Longitudinal Outbound Egress CUSUM Fusion (`secops-risk-metrics-multistage`)
+#### Query 6: 3-Stage Workspace Activity Triad & Windowed Cumulative Egress Exceedance Fusion (`secops-risk-metrics-multistage`)
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// ARCHITECTURE: 3-STAGE WORKSPACE ACTIVITY TRIAD & LONGITUDINAL EGRESS CUSUM FUSION
-// Goal: Detect Shadow AI connectors or browser agents bulk-harvesting Google Workspace documents alongside persistent outbound network byte drift.
-// Statistical Model: Workspace Activity Triad Z-Scores + Option 1 Piecewise Page's CUSUM Drift
+// ARCHITECTURE: 3-STAGE WORKSPACE ACTIVITY TRIAD & WINDOWED CUMULATIVE EGRESS EXCEEDANCE FUSION
+// Goal: Detect Shadow AI connectors or browser agents bulk-harvesting Google Workspace documents alongside multi-day outbound network byte exceedance.
+// Statistical Model: Workspace Activity Triad Z-Scores + Option 1 Piecewise Windowed One-Sided Cumulative Exceedance (Tabular CUSUM Approximation)
 // ============================================================================
 
 stage workspace_triad {
@@ -1178,7 +1185,7 @@ In enterprise cloud environments, the most dangerous Shadow AI pattern is **Serv
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
 // ARCHITECTURE: 4-STAGE UNSANCTIONED SERVICE ACCOUNT CLOUD CRUD FAILURE, PROVISIONING & EGRESS FUSION
-// Goal: Detect service accounts co-opted by Shadow AI agents exhibiting epistemic CRUD failures, autonomous resource creation across novel services, and outbound network egress.
+// Goal: Detect service accounts co-opted by Shadow AI agents exhibiting repeated Cloud CRUD permission denials, autonomous resource creation across novel services, and outbound network egress.
 // Statistical Model: Option 1 Piecewise Cold-Start Hurdle + 4-Stage Cloud CRUD Failure & Network Egress Roll-Up Fusion
 // ============================================================================
 
@@ -1371,11 +1378,11 @@ order:
 
 ---
 
-### Scenario 8: Narrow Context (DNS Shadow AI Proxy, Rare Gateway Discovery & Subdomain Tunneling)
+### Scenario 8: Narrow Context (DNS Control Plane — Rare Gateway Discovery & Long/Encoded FQDN Heuristics)
 
-Even when SSL/TLS inspection is bypassed, custom reverse proxies are used, or HTTP proxy logs are absent on headless server subnets, **DNS acts as an inescapable control-plane proxy for Shadow AI activity**:
-1. **DNS Activity Triad + `DERIVED_CONTEXT` Rare AI Gateway Discovery (`Query 8A`)**: Autonomous agents generating web search tool calls, fetching external MCP schemas, or probing hallucinated internal/external endpoints trigger simultaneous surges in `metrics.dns_queries_total` and `metrics.dns_queries_fail` (`NXDOMAIN`). By joining the 30-day DNS behavioral triad in Stage 1 against Chronicle's **Entity Context Graph (`DERIVED_CONTEXT` `DOMAIN_NAME` prevalence)** in Stage 3 (`rolling_max <= 3` across a 10-day window), we isolate hosts experiencing a DNS velocity or failure surge that are simultaneously resolving newly adopted, low-prevalence external AI gateways, Cloudflare tunnels, or custom proxy domains.
-2. **DNS Subdomain Shannon Entropy & Outbound Byte Proxy (`Query 8B`)**: Certain Shadow AI CLI wrappers, telemetry beacons, and covert agent bridges encode serialized context tokens, session IDs, or exfiltrated snippets directly into Base64/Hex DNS subdomain labels (`<encoded-chunk>.<session>.custom-gateway.tld`). Measuring **Shannon character-class information density and query length ($\ge 45$ characters, `$shannon_entropy_score >= 7.5`)** per `(hostname,network.dns.questions.name)` exposes DNS-based AI proxies and covert channels without relying on domain blocklists.
+Even when SSL/TLS inspection is bypassed, custom reverse proxies are used, or HTTP proxy logs are absent on headless server subnets, **DNS acts as a reliable control-plane proxy for Shadow AI activity**:
+1. **DNS Activity Triad + `DERIVED_CONTEXT` Rare AI Gateway Discovery (`Query 8A`)**: Autonomous agents generating web search tool calls, fetching external MCP schemas, or probing hallucinated internal/external endpoints trigger simultaneous surges in `metrics.dns_queries_total` and `metrics.dns_queries_fail` (`NXDOMAIN`). By joining the 30-day DNS behavioral triad in Stage 1 against Chronicle's **Entity Context Graph (`DERIVED_CONTEXT` `DOMAIN_NAME` prevalence)** in Stage 3 (`rolling_max <= 3` across a 10-day window), we isolate hosts experiencing a DNS volume or failure surge that are simultaneously resolving newly adopted, low-prevalence external AI gateways, Cloudflare tunnels, or custom proxy domains.
+2. **Log-Scaled DNS FQDN Length & Query Repetition Heuristic (`Query 8B`)**: Certain Shadow AI CLI wrappers, telemetry beacons, and covert agent bridges encode serialized context tokens, session IDs, or exfiltrated snippets directly into Base64/Hex DNS subdomain labels (`<encoded-chunk>.<session>.custom-gateway.tld`). Because YARA-L 2.0 cannot iterate character-by-character over strings to compute true $-\sum p(c)\log_2 p(c)$ Shannon entropy, `Query 8B` applies a **log-scaled FQDN character length and repetition heuristic** (`strings.length($token) >= 45`, `$token_executions >= 5`, `$fqdn_length_score >= 7.5`) per `(hostname, network.dns.questions.name)` to surface unusually long, repeatedly queried DNS names without relying on static domain blocklists.
 
 #### Query 8A: 3-Stage DNS Activity Triad and Rare AI Gateway Domain Discovery (`secops-risk-metrics-multistage`)
 
@@ -1489,15 +1496,15 @@ order:
   $unified_threat_score desc
 ```
 
-#### Query 8B: 2-Stage DNS Subdomain Shannon Entropy and Outbound Byte Proxy (`secops-statistical-hunter`)
+#### Query 8B: 2-Stage Log-Scaled DNS FQDN Length & Query Repetition Heuristic (`secops-statistical-hunter`)
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// ARCHITECTURE: 2-STAGE DNS SUBDOMAIN SHANNON ENTROPY & OUTBOUND BYTE PROXY PIPELINE
-// Goal: Detect Shadow AI CLI tools and covert tunnels encoding prompt or telemetry payloads into high-entropy DNS query names.
-// Statistical Model: Shannon Character-Class Information Density & Length Ratio (shannon_entropy_character_2stage.yl2)
+// ARCHITECTURE: 2-STAGE LOG-SCALED DNS FQDN LENGTH & QUERY REPETITION HEURISTIC PIPELINE
+// Goal: Detect Shadow AI CLI tools and covert tunnels encoding prompt or session payloads into unusually long, repeatedly queried DNS names.
+// Statistical Model: Log-Scaled FQDN Character Length & Query Repetition Heuristic
 // ============================================================================
 
 stage entity_baseline {
@@ -1546,8 +1553,8 @@ outcome:
 
   $log_len = math.log($safe_length)
   $length_factor = if($safe_length >= 45, 2.0, 1.0)
-  $shannon_entropy_score = $log_len * $length_factor
-  $unified_threat_score = $shannon_entropy_score
+  $fqdn_length_score = $log_len * $length_factor
+  $unified_threat_score = $fqdn_length_score
 
   $observation_count = $token_executions
   $baseline_active_samples = $total_activity
@@ -1559,10 +1566,10 @@ outcome:
 condition:
   $raw_length >= 45
   and $token_executions >= 5
-  and $shannon_entropy_score >= 7.5
+  and $fqdn_length_score >= 7.5
 
 order:
-  $shannon_entropy_score desc
+  $fqdn_length_score desc
 ```
 
 ---
