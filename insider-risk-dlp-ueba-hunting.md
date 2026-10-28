@@ -64,6 +64,14 @@ Once you create and populate `%insider_risk_watchlist` (see **Section 4.3** for 
 
 ## 2. Runbook Portfolio Matrix (15 Queries Across 10 Scenarios in 3 Waves)
 
+> [!IMPORTANT]
+> **How `agentic_ueba` (`PlaybookRunner`) and LLM Agents Handle `A -> UDM -> B` Splits (`2A -> 2B` and `6A -> 6B`)**:
+> 1. **Programmatic `PlaybookRunner` (`run_markdown_playbook` / `/api/v1/playbooks/run`)**: `PlaybookRunner.parse_markdown_playbook()` inspects the YARA-L AST of every query. Because `Query 2B` (`stage1_upstream_2a_candidates` matching `:q[0-9]+_query_2a`) and `Query 6B` (`stage1_upstream_6a_candidates` matching `:q[0-9]+_query_6a`) reference `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` with Stage A rule-name regexes, `PlaybookRunner` automatically assigns them **`is_udm_gated = True` (`execution_wave = 2`)** and schedules the runbook across **3 strict waves with read-after-write UDM barriers**:
+>    * **Wave 1 (12 Upstream Queries)**: Executes `Queries 1, 2A, 3A, 3B, 4, 5, 6A, 7A, 7B, 8, 9A, 9B` in parallel, converts all matched entities into `GENERIC_EVENT` (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH`) records tagged with `metadata.product_log_id = <run_id>` and `security_result.rule_name = "<playbook_id>:q<NN>_query_<id>..."`, flushes them via `ImportEvents`, and polls `verify_udm_run_indexed()` until Chronicle UDM confirms 100% of Wave 1 events are indexed.
+>    * **Wave 2 (2 UDM-Gated Stage B Queries)**: Executes `Query 2B` and `Query 6B` (which join `stage1_upstream_2a_candidates` / `stage1_upstream_6a_candidates` directly from Chronicle UDM), flushes their matches to UDM, and polls `verify_udm_run_indexed()` again.
+>    * **Wave 3 (Unified Stage 10 Capstone)**: Executes `Query 10` (`execution_wave = 3`) over all indexed Wave 1 + Wave 2 UDM events.
+> 2. **Interactive / Manual Agent Execution (`udm_search` + `import_logs`)**: If an agent or analyst runs Scenario 2 or Scenario 6 manually without `PlaybookRunner`, **you must ingest the matched entities from `Query 2A` (or `Query 6A`) into Chronicle UDM as `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` events and wait for UDM indexing before running `Query 2B` (or `Query 6B`)**. Each Stage A / Stage B query header below includes explicit `UDM LOOPBACK CONTRACT` comments specifying the exact fields required.
+
 | Scenario | Operational Class | Wave & Architecture | Query ID(s) & Statistical / Relational Model | Primary Telemetry & `metrics.*` Vectors |
 | :--- | :--- | :--- | :--- | :--- |
 | **1. Personal Web Upload Surge & Producer Ratio** | **Class I** (Pre-Notice) & **Class II** (Post-Notice) | **Wave 1: Single Combined Query** (3-Stage `by 1d`) | **`Query 1`**: 30-Day HTTP + Outbound Byte Baselines, Off-Hours Step Multiplier & Producer-Consumer Byte Ratio ($\rho$) | `NETWORK_HTTP`, `NETWORK_CONNECTION` (`metrics.http_queries_total`, `metrics.network_bytes_outbound`) |
@@ -212,6 +220,8 @@ When an insider attempts to upload a sensitive file and receives a Chrome Data P
 // ARCHITECTURE: 4-STAGE NON-PARAMETRIC MAD ON CHROME DLP SENSITIVE DATA EVENTS
 // Goal: Detect anomalous spikes in Chrome Enterprise DLP sensitiveDataEvent and contentTransferEvent activity (uploads, pastes, warnings, blocks) per user/host.
 // Statistical Model: Option 1 Piecewise Cold-Start Hurdle + 4-Stage Non-Parametric Median Absolute Deviation (MAD)
+// Execution Wave: Wave 1 (Upstream Stage A).
+// UDM LOOPBACK CONTRACT (2A -> 2B): Before executing Query 2B, matched $entity rows from Query 2A MUST be pushed to Chronicle UDM as GENERIC_EVENT records with metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH", metadata.product_log_id = "<run_id>", and security_result.rule_name containing ":q02_query_2a" (handled automatically by PlaybookRunner between Wave 1 and Wave 2).
 // Skill: secops-statistical-hunter
 // ============================================================================
 
@@ -311,6 +321,7 @@ order:
 // ARCHITECTURE: 3-STAGE UDM-GATED CHROME DLP WARN-DECLINE-THEN-PASTE CIRCUMVENTION PIPELINE
 // Goal: Isolate candidate entities from Query 2A that received a Chrome DLP file upload warning or block (with zero bypasses) and subsequently switched to pasting text/clipboard content.
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Non-Existence of Bypass (bypass_count = 0) + Same-Day Paste Circumvention Scoring
+// Execution Wave: Wave 2 (UDM-Gated Stage B — requires Query 2A UDM events to be ingested and indexed in Chronicle UDM first).
 // Skill: secops-statistical-hunter
 // ============================================================================
 
@@ -859,6 +870,8 @@ Technical insiders (engineers, data scientists, cloud admins) frequently stage s
 // ARCHITECTURE: 3-STAGE DUAL-BRANCH CLOUD REPOSITORY SCOPE & ORIGIN OUTLIER PIPELINE
 // Goal: Detect insiders or service accounts harvesting cloud repositories at anomalous 30-day volumes, accessing unseen repositories ($dest_days = 0), or calling from unseen home/personal IPs.
 // Statistical Model: Local-Baseline Isolation across 4 Cloud CRUD Families (cloud_repository_scope_dual_branch.yl2)
+// Execution Wave: Wave 1 (Upstream Stage A).
+// UDM LOOPBACK CONTRACT (6A -> 6B): Before executing Query 6B, matched $user rows from Query 6A MUST be pushed to Chronicle UDM as GENERIC_EVENT records with metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH", metadata.product_log_id = "<run_id>", and security_result.rule_name containing ":q08_query_6a" (handled automatically by PlaybookRunner between Wave 1 and Wave 2).
 // Skill: secops-risk-metrics-multistage
 // ============================================================================
 
@@ -1034,6 +1047,7 @@ order:
 // ARCHITECTURE: 4-STAGE UDM-GATED POISSON FANO FACTOR DISPERSION ON CLOUD API DENIALS
 // Goal: Detect clustered 5-minute bursts of cloud API permission denials (F = sigma^2 / mu >= 3.5) strictly on candidate identities surfaced by Query 6A via UDM Loopback.
 // Statistical Model: UDM Loopback Stage 1 Candidate Gate + Fano Factor Index of Dispersion (F = sigma^2 / mu)
+// Execution Wave: Wave 2 (UDM-Gated Stage B — requires Query 6A UDM events to be ingested and indexed in Chronicle UDM first).
 // Skill: secops-statistical-hunter
 // ============================================================================
 
@@ -1682,6 +1696,7 @@ In **Wave 3**, **`Query 10`** reads all `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` events 
 // ARCHITECTURE: 3-STAGE UNIFIED INSIDER RISK CAPSTONE CONVERGENCE & FORENSIC DOSSIER BRIDGE
 // Goal: Deduplicate and roll up normalized UEBA hunt matches across all 9 Insider Risk & Chrome DLP scenarios (1 through 9B) via UDM Loopback regex token union while simultaneously joining raw CHROME_MANAGEMENT, endpoint, and cloud telemetry for forensic attribution.
 // Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw DLP/Telemetry Bridge
+// Execution Wave: Wave 3 (Final Unified Capstone — requires all Wave 1 and Wave 2 PLAYBOOK_BEHAVIORAL_HUNT_MATCH UDM events to be ingested and verified indexed in Chronicle UDM first).
 // Skill: secops-statistical-hunter
 // ============================================================================
 
