@@ -6,24 +6,24 @@
 
 The **Applied Threat Intelligence (ATI) Curated Prioritization** suite enriches host, network, and authentication telemetry with Google Threat Intelligence (GTI) and Mandiant breach prioritization—surfacing matches against high-confidence active-breach and high-priority indicators of compromise (IoCs).
 
-Because threat actors frequently deploy freshly compiled binaries, newly registered domains, or short-lived proxy infrastructure before static indicator feeds catalog them, this playbook supplements ATI indicator matching with **Behavioral Rarity, Prevalence, and Baseline Fusion** (`secops-risk-metrics-multistage` and `secops-statistical-hunter`). Rather than relying solely on known IoC reputation, these queries evaluate 10-day `DERIVED_CONTEXT` prevalence, WHOIS domain lifecycle age, C2 beaconing cadence, geodesic travel velocity, and 30-day behavioral baselines.
+Because threat actors frequently deploy freshly compiled binaries, newly registered domains, or short-lived proxy infrastructure before static indicator feeds catalog them, this runbook supplements ATI indicator matching with **Behavioral Rarity, Prevalence, and Baseline Fusion** (`secops-risk-metrics-multistage` and `secops-statistical-hunter`). Rather than relying solely on known IoC reputation, these queries evaluate 30-day `metrics.*` behavioral baselines (with a 7-active-day maturity gate and continuous count/byte dispersion floors), 10-day `DERIVED_CONTEXT` organizational prevalence (`day_count = 10`, `rolling_max <= 3`), event-relative `GLOBAL_CONTEXT` WHOIS domain lifecycle age, stateless outbound flow-gap ratio regularity (`FLOW_GAP_RATIO_SCREEN`), Leave-One-Out Beta-Binomial authentication failure-rate standardization, and intraday network connection burst Z-scores (`BURST_Z_SCREEN`). Queries emit Z and Z-equivalent anomaly scores directly; Composite Risk Index (`CRI` in `[0, 100]`) is computed downstream in Python by `agentic_ueba` (`ueba_constants.calculate_cri`).
 
 ### Complementary Detection Layers (3-Wave `A -> UDM -> B` & Capstone Architecture)
 * **Curated Detections (Real-Time Deterministic & Single-Stage Layer)**: Provide immediate, low-latency alerting on high-confidence indicators, explicit attack syntax, and single-stage threshold breaches.
-* **Multi-Stage UEBA & Statistical Hunting Harness (Cyclical 3-Wave Layer)**: Extends coverage beyond the built-in window and observation constraints of single-stage rules through a **3-Wave Execution Pipeline** orchestrated by `PlaybookRunner` in `agentic-ueba`:
-  1. **Wave 1 — Consolidated Single-Shot Queries & Parallel Pairs (`Option 1` Piecewise Cold-Start + 30d Baselines)**: Executes all `by 1d` `metrics.*` baselines, inline Piecewise Cold-Start/Mature unified queries (`active_days <= 4` Hurdle vs. `active_days >= 5` 30-day Z-Score/MAD), and tightly pre-filtered statistical hunter queries concurrently. Every match is ingested into Chronicle UDM as a `GENERIC_EVENT` (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`) stamped with the cycle's unique `run_id` (`metadata.product_log_id`) and hierarchical rule tag (`:q[0-9]+_query_Xa`).
-  2. **Wave 2 — Serial `A -> UDM -> B` Candidate-Gated Queries (`Option 3` Stage B Loopback)**: After `PlaybookRunner` flushes Wave 1 findings and verifies indexing via `verify_udm_run_indexed()`, Wave 2 `Query XB` queries read `Query XA`'s candidate entities in Stage 1 (`re.regex(security_result.rule_name, `:q[0-9]+_query_Xa`)`) to bound sub-day (`by 1h`) raw cadence, dispersion, and shrinkage calculations without risking 1M-row enterprise scan caps.
-  3. **Wave 3 — Unified 3-Stage Capstone Convergence & Raw Telemetry Forensic Bridge (`Query 5`)**: Unions all upstream scenario tags (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-4]`)`), deduplicates per scenario in Stage 1, computes cross-scenario Euclidean L2 convergence (`$distinct_scenarios_matched >= 2` and `$capstone_threat_norm_sq >= 18.0`) in Stage 2, and pivots winning entities directly into raw endpoint, network, and cloud telemetry in Stage 3.
+* **Multi-Stage UEBA & Statistical Hunting Harness (Cyclical 3-Wave Layer)**: Extends coverage beyond the built-in window and observation constraints of single-stage rules through a **3-Wave Execution Pipeline** orchestrated by `PlaybookRunner` in `agentic_ueba` (configured with `<PROJECT_ID>` and `<CUSTOMER_ID>`):
+  1. **Wave 1 — Upstream Macro Baselines, Entity Graph Prevalence & Fleet Rarity (`6 Queries`)**: Executes all `by 1d` 30-day `metrics.*` baselines (`Queries 1A, 2A, 3A, 4A`), raw host-prevalence Zipfian binary rarity (`Query 1B`), and the Section 4 Skewness-Adjusted Tukey Fence rare-domain query concurrently. In Mode A (scoring the last complete UTC day `D`), Entity Graph (`DERIVED_CONTEXT` / `GLOBAL_CONTEXT`) queries run over `[D-2, D+1)` so daily lagged graph records join cleanly while event stages pin `timestamp.get_date(metadata.event_timestamp.seconds) = "YYYY-MM-DD"` to `D`. Every match is ingested into Chronicle UDM as a `GENERIC_EVENT` (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`) stamped with the cycle's unique `run_id` (`metadata.product_log_id`) and hierarchical rule tag (`:q[0-9]+_query_Xa`).
+  2. **Wave 2 — Serial `A -> UDM -> B` Candidate-Gated Micro Queries (`3 Queries`, `Option 3` Stage B Loopback)**: After `PlaybookRunner` flushes Wave 1 findings and verifies indexing via `verify_udm_run_indexed()`, Wave 2 `Query XB` queries (`Queries 2B, 3B, 4B`) read `Query XA`'s candidate entities in Stage 1 (`re.regex(security_result.rule_name, `:q[0-9]+_query_Xa`)`) to bound sub-day (`by 1h`) raw flow-gap dispersion, Leave-One-Out Beta-Binomial failure standardization, and Leave-One-Out connection burst Z-scores without risking 1M-row enterprise scan caps.
+  3. **Wave 3 — Unified 3-Stage Capstone Convergence & Raw Telemetry Forensic Bridge (`Query 5`)**: Unions all upstream scenario tags (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-4]`)`), deduplicates per scenario in Stage 1, enforces cross-scenario Euclidean $L_2$ convergence (`$distinct_scenarios_matched >= 2` and `$capstone_threat_norm_sq >= 25.0`, matching `LOOPBACK_MIN_DISTINCT_HITS = 2` and `LOOPBACK_COMPOSITE_SUM_Z_SQ_THRESHOLD = 25.0`) in Stage 2, and pivots winning entities directly into per-sector raw endpoint, network, cloud, and authentication telemetry in Stage 3.
 
 ### Table 1: Scenario Coverage Matrix — Applied Threat Intelligence (ATI) Curated Prioritization & Complementary UEBA Analytics
 
 | Scenario & Threat Domain | Curated Detection Operational Focus | How Multi-Stage UEBA Extends Visibility | UEBA Models & Query IDs |
 | :--- | :--- | :--- | :--- |
-| **1. Host Binary Execution Prioritization & Novel Payloads** | Prioritizes process and file events matching high-confidence GTI file hashes and breach indicators. | Combines 30-day host file execution baselines (`metrics.file_executions_total`) with 10-day `DERIVED_CONTEXT` binary prevalence (`day_max <= 3`) and Zipfian inverse host frequency ($I = \ln(N/df) \ge 3.5$) to surface novel binaries prior to feed ingestion. | `Query 1A` (30d Execution + 10d Prevalence)<br>`Query 1B` (Zipfian Binary Rarity) |
-| **2. Network C2, Ephemeral Domains & Automated Callback Cadence** | Matches outbound DNS and network connections against prioritized GTI domain and IP indicators. | Weights 30-day outbound HTTP request volume by event-relative WHOIS domain registration age (`creation_time`) and detects automated C2 callback timers via inter-arrival jitter ($\text{CV} \le 0.20$). | `Query 2A` (30d HTTP + WHOIS Lifecycle)<br>`Query 2B` (C2 Inter-Arrival CV) |
-| **3. Inbound Authentication from Anomalous Infrastructure** | Flags authentication events originating from known malicious or Tor/proxy IP indicators. | Unifies cold-start and 30-day authentication baselines (`Option 1`) with geodesic impossible-travel velocity ($\ge 900\text{ km/h}$) and Beta-Binomial authentication failure-rate regularization. | `Query 3A` (Geodesic Impossible Travel)<br>`Query 3B` (Beta-Binomial Auth Regularization) |
-| **4. Post-Indicator Breach Escalation & Exfiltration Fusion** | Correlates prioritized indicator hits with subsequent host or network activity. | Fuses 30-day Outbound Network Bytes and Alert/Execution baselines ($D^2 \ge 12.25$) with Producer-Consumer Byte Ratio inversion ($\rho \ge 0.80$) to confirm active post-compromise data staging. | `Query 4A` (30d Egress + Alert Fusion)<br>`Query 4B` (Producer-Consumer Inversion) |
-| **5. Capstone Multi-Scenario ATI Entity Convergence** | Point-in-time indicator matches evaluated per event. | Correlates entities matching $\ge 2$ distinct behavioral prioritization queries within the current run (`Option 3` UDM Loopback `PLAYBOOK_BEHAVIORAL_HUNT_MATCH`) via an $L_2$ Euclidean risk norm ($\sum Z_i^2 \ge 25.0$). | `Capstone Query` (UDM Loopback $L_2$ Convergence) |
+| **1. Host Binary Execution Prioritization & Novel Payloads** | Prioritizes process and file events matching high-confidence GTI file hashes and breach indicators. | Pairs 30-day per-(host, SHA256) execution Z-scores (`metrics.file_executions_total`, $\ge 7$ active days) filtered by 10-day `DERIVED_CONTEXT` binary prevalence (`rolling_max <= 3`) with raw fleetwide host-prevalence Zipfian IDF rarity ($\ln(N_{\text{fleet}} / N_{\text{adopters}}) \ge 2.5$, $\le 2$ hosts) for unindexed Day-0 binaries. | `Query 1A` (30d Execution Z + 10d File Prevalence)<br>`Query 1B` (Host-Prevalence Zipfian Rarity) |
+| **2. Network C2, Ephemeral Domains & Callback Regularity** | Matches outbound DNS and network connections against prioritized GTI domain and IP indicators. | Weights 30-day per-(host, domain) HTTP query Z-scores (`metrics.http_queries_total`) by event-relative WHOIS domain registration/expiration status (`2.5x` NRD $\le 30\text{d}$, `3.0x` expired) and screens `Query 2A` candidate hosts for uniform hourly outbound flow-gap ratios (`FLOW_GAP_RATIO_SCREEN`, $\text{CV} \le 0.20$). | `Query 2A` (30d HTTP Z + WHOIS Lifecycle)<br>`Query 2B` (UDM-Gated Flow-Gap Ratio Screen) |
+| **3. Inbound Authentication Brute-Force & Breach Convergence** | Flags authentication events originating from known malicious or Tor/proxy IP indicators. | Fuses 30-day failed (`metrics.auth_attempts_fail`) and successful (`metrics.auth_attempts_success`) login Z-scores in a single-stage conditional union ($D^2 = Z_{\text{fail}}^2 + Z_{\text{success}}^2 \ge 12.25$) and evaluates `Query 3A` candidate users with Leave-One-Out Beta-Binomial predictive failure Z-scores ($Z_{\text{fail}} \ge 3.0\sigma$). | `Query 3A` (Dual-Sector Auth Fail + Success Fusion)<br>`Query 3B` (UDM-Gated Beta-Binomial Failure Z) |
+| **4. Rare Domain C2 & Intraday Network Connection Surges** | Correlates prioritized indicator hits with subsequent host or network activity. | Pairs 30-day per-(host, domain) HTTP query Z-scores filtered by 10-day `DERIVED_CONTEXT` domain prevalence (`rolling_max <= 3` hosts) with UDM-gated Leave-One-Out hourly outbound connection burst Z-scores (`BURST_Z_SCREEN`, $Z_{\text{burst}} \ge 3.0\sigma$) on `Query 4A` candidate hosts. | `Query 4A` (30d HTTP Z + 10d Domain Prevalence)<br>`Query 4B` (UDM-Gated Hourly Burst Z Screen) |
+| **5. Capstone Multi-Scenario ATI Entity Convergence** | Point-in-time indicator matches evaluated per event. | Correlates entities matching $\ge 2$ distinct behavioral prioritization queries within the current run (`Option 3` UDM Loopback `PLAYBOOK_BEHAVIORAL_HUNT_MATCH`) via an $L_2$ Euclidean squared norm ($\sum Z_i^2 \ge 25.0$) and bridges directly to raw per-domain telemetry. | `Query 5` (UDM Loopback $L_2$ Convergence + Raw Bridge) |
 
 ---
 
@@ -32,173 +32,211 @@ Because threat actors frequently deploy freshly compiled binaries, newly registe
 ### Scenario 1: Host Binary Execution Prioritization Beyond Static GTI Hash Hits
 
 * **Curated Detection Operational Focus**: Prioritizes process and file events matching high-confidence GTI file hashes and breach indicators.
-* **How Multi-Stage UEBA Extends Coverage**: Combines 30-day host file execution baselines (`metrics.file_executions_total`) with 10-day `DERIVED_CONTEXT` binary prevalence (`day_max <= 3`) and Zipfian inverse host frequency ($I = \ln(N/df) \ge 3.5$) to surface novel binaries prior to feed ingestion.
+* **How Multi-Stage UEBA Extends Coverage**: Pairs a 30-day per-(host, SHA256) execution Z-score (`metrics.file_executions_total`) joined with 10-day `DERIVED_CONTEXT` binary prevalence (`rolling_max <= 3`) in `Query 1A` with raw fleetwide host-prevalence Zipfian inverse document frequency ($\ln(N_{\text{fleet}} / N_{\text{adopters}}) \ge 2.5$) in `Query 1B`.
 
 #### Query 1A: 2-Stage Hybrid 30-Day File Execution Baseline + Entity Context Graph Binary Prevalence (`secops-risk-metrics-multistage`)
-Replaces static `GTI_IOC` hash matching with a 2-stage hybrid pipeline that scores per-(host, SHA256) process execution volume against its 30-day behavioral baseline (`metrics.file_executions_total`) and joins `DERIVED_CONTEXT` 10-day organizational file prevalence (`rolling_max <= 3`). Even when a payload hash is brand new to the world (absent from GTI), if $\le 3$ hosts in the enterprise have ever seen that SHA256 hash over the past 10 days and it exhibits an execution anomaly on the endpoint, it surfaces immediately.
+Scores per-(host, SHA256) process execution counts on Mode A day `D` (`"2026-10-29"`) against the 30-day `metrics.file_executions_total` baseline using the continuous count dispersion floor $\max(\sigma, \sqrt{\max(\mu, 1)})$ and a 7-active-day maturity gate (`$active_baseline_days >= 7`), then inner-joins `DERIVED_CONTEXT` 10-day organizational file prevalence (`day_count = 10`, `rolling_max <= 3`). Run over `[D-2, D+1)` (`startTime = D-2 T00:00:00Z`, `endTime = D+1 T00:00:00Z`) so lagged daily Entity Graph records overlap the search window. Because `stage2_file_derived_context` is an inner join and `$active_baseline_days >= 7` enforces baseline maturity, `Query 1A` isolates established rare binaries ($\le 3$ hosts enterprise-wide) experiencing acute execution surges ($Z \ge 3.0\sigma$), while brand-new Day-0 binaries absent from `DERIVED_CONTEXT` are covered by `Query 1B`.
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// Goal: Detect execution of rare or novel binaries (10-day DERIVED_CONTEXT rolling_max <= 3 hosts) with anomalous per-host execution frequency compared to 30-day behavioral baselines.
+// Goal: Detect execution surges (Z >= 3.0) of organizationally isolated binaries (10-day DERIVED_CONTEXT rolling_max <= 3 hosts) relative to mature 30-day per-(host, sha256) baselines.
 // Statistical Model: 2-Stage Hybrid 30-Day Composite Metric Z-Score (metrics.file_executions_total) + DERIVED_CONTEXT 10-Day Binary Prevalence
-// ARCHITECTURE: 2-STAGE HYBRID METRIC + DERIVED_CONTEXT FILE PREVALENCE PIPELINE
+// ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT FILE PREVALENCE PIPELINE
 // Skill: secops-risk-metrics-multistage
 // ============================================================================
 
-// Stage 1: Endpoint Process Execution + 30-Day Composite Baseline per (host, event_type, sha256)
-stage process_metric_anomalies {
+// Stage 1: Macro 30-Day Process Execution Baseline per (host, sha256) on Mode A day D
+stage stage1_process_baseline {
     metadata.event_type = "PROCESS_LAUNCH"
-    metadata.event_type = $event_type
+    timestamp.get_date(metadata.event_timestamp.seconds) = "2026-10-29"
     principal.asset.hostname = $host
     principal.process.file.sha256 = $sha256
     $host != ""
     $sha256 != ""
 
   match:
-    $host, $event_type, $sha256 by 1d
+    $host, $sha256 by 1d
 
   outcome:
-    $exec_count = count(metadata.id)
-    $b_avg = max(metrics.file_executions_total(
+    $observed_val = count(metadata.id)
+    $sample_command = array_distinct(principal.process.command_line)
+    $sample_path = array_distinct(principal.process.file.full_path)
+    $distinct_users = count_distinct(principal.user.userid)
+    $hist_mean = max(metrics.file_executions_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.asset.hostname: principal.asset.hostname,
         metadata.event_type: metadata.event_type,
+        principal.asset.hostname: principal.asset.hostname,
         principal.process.file.sha256: principal.process.file.sha256
     ))
-    $b_std = max(metrics.file_executions_total(
+    $hist_stddev = max(metrics.file_executions_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.asset.hostname: principal.asset.hostname,
         metadata.event_type: metadata.event_type,
+        principal.asset.hostname: principal.asset.hostname,
         principal.process.file.sha256: principal.process.file.sha256
     ))
-    $b_days = max(metrics.file_executions_total(
+    $hist_active_days = max(metrics.file_executions_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
-        principal.asset.hostname: principal.asset.hostname,
         metadata.event_type: metadata.event_type,
+        principal.asset.hostname: principal.asset.hostname,
         principal.process.file.sha256: principal.process.file.sha256
     ))
-    $z_score = ($exec_count - $b_avg) / if($b_std > 0, $b_std, 1.0)
+    $event_timestamp = max(metadata.event_timestamp.seconds)
 }
 
-// Root Stage: Join with DERIVED_CONTEXT 10-Day File Prevalence (rolling_max <= 3)
-$host = $process_metric_anomalies.host
-$sha256 = $process_metric_anomalies.sha256
+// Stage 2: Chronicle Derived Context Graph Lookup (10-Day Binary Prevalence & First Seen)
+stage stage2_file_derived_context {
+    $file.graph.metadata.source_type = "DERIVED_CONTEXT"
+    $file.graph.metadata.entity_type = "FILE"
+    $file.graph.entity.file.sha256 = $sha256
+    $file.graph.entity.file.prevalence.day_count = 10
+    $file.graph.entity.file.prevalence.rolling_max <= 3
+    $file.graph.entity.file.prevalence.rolling_max > 0
+    $sha256 != ""
 
-$g.graph.metadata.entity_type = "FILE"
-$g.graph.metadata.source_type = "DERIVED_CONTEXT"
-$g.graph.entity.file.sha256 = $sha256
-$g.graph.entity.file.prevalence.day_count = 10
-$g.graph.entity.file.prevalence.rolling_max <= 3
-$g.graph.entity.file.prevalence.rolling_max > 0
+  match:
+    $sha256
+
+  outcome:
+    $enterprise_day_count = min($file.graph.entity.file.prevalence.day_count)
+    $enterprise_rolling_max = max($file.graph.entity.file.prevalence.rolling_max)
+    $first_seen_ts = min($file.graph.entity.file.first_seen_time.seconds)
+    $last_seen_ts = max($file.graph.entity.file.last_seen_time.seconds)
+}
+
+// Root Stage: Continuous Count Dispersion Floor & Enterprise Prevalence Multiplier
+$host = $stage1_process_baseline.host
+$sha256 = $stage1_process_baseline.sha256
+$sha256 = $stage2_file_derived_context.sha256
 
 match:
   $host, $sha256 by 1d
 
 outcome:
-  $observed_execs = max($process_metric_anomalies.exec_count)
-  $baseline_mean = max($process_metric_anomalies.b_avg)
-  $baseline_stddev = max($process_metric_anomalies.b_std)
-  $active_days = max($process_metric_anomalies.b_days)
-  $z_score = max($process_metric_anomalies.z_score)
-  $org_file_prevalence_10d = max($g.graph.entity.file.prevalence.rolling_max)
+  $observed_execs = max($stage1_process_baseline.observed_val)
+  $mean_execs = max($stage1_process_baseline.hist_mean)
+  $stddev_execs = max($stage1_process_baseline.hist_stddev)
+  $mean_floor_arg = if($mean_execs > 1.0, $mean_execs, 1.0)
+  $dispersion_floor = math.sqrt($mean_floor_arg)
+  $safe_stddev = if($stddev_execs > $dispersion_floor, $stddev_execs, $dispersion_floor)
+  $z_score = ($observed_execs - $mean_execs) / $safe_stddev
+  $active_baseline_days = max($stage1_process_baseline.hist_active_days)
 
-  // Novel binary (0 prior active days on host) or singleton in org gets 2.5x multiplier
-  $novelty_boost = if($active_days = 0 or $org_file_prevalence_10d <= 1, 2.5, 1.5)
-  $base_signal = if($z_score > 1.0, $z_score, 1.5)
-  $fused_threat_score = $base_signal * $novelty_boost
+  $fleet_prevalence = max($stage2_file_derived_context.enterprise_rolling_max)
+  $prevalence_days = min($stage2_file_derived_context.enterprise_day_count)
+  $first_seen = min($stage2_file_derived_context.first_seen_ts)
+  $obs_ts = max($stage1_process_baseline.event_timestamp)
+  $raw_age_days = ($obs_ts - $first_seen) / 86400.0
+  $binary_age_days = if($first_seen > 0, $raw_age_days, 9999.0)
+
+  // Guarded novelty boost: 2.5x when valid first_seen_time <= 7d before event; 1.5x for isolated rare binaries
+  $is_novel_binary = if($first_seen > 0 and $binary_age_days <= 7.0 and $binary_age_days >= 0.0, 1.0, 0.0)
+  $rarity_multiplier = if($is_novel_binary = 1.0, 2.5, 1.5)
+  $threat_score = $z_score * $rarity_multiplier
+
+  $sample_commands = array_distinct($stage1_process_baseline.sample_command)
+  $sample_paths = array_distinct($stage1_process_baseline.sample_path)
 
 condition:
-  $observed_execs >= 1
-  and $fused_threat_score >= 3.0
+  $active_baseline_days >= 7
+  and $z_score >= 3.0
+  and $fleet_prevalence <= 3
 
 order:
-  $fused_threat_score desc
+  $threat_score desc
 ```
 
-#### Query 1B: Zipfian Power-Law Fleet Rarity & Inverse Host Frequency Surprisal (`secops-statistical-hunter`)
-Catches polymorphic droppers, custom C2 implants, and living-off-the-land admin tools operating in the extreme asymptotic tail of the enterprise fleet ($\le 2$ hosts) via **Zipfian Power-Law Inverse Rank Frequency** ($\text{Zipf Rarity} = (\ln N_{\text{execs}} - \ln N_{\text{hosts}}) \cdot (1 + 1 / N_{\text{hosts}}) \ge 4.0$) directly over raw `PROCESS_LAUNCH` telemetry—requiring zero prior `GLOBAL_CONTEXT` or `DERIVED_CONTEXT` indexing.
+#### Query 1B: 4-Stage Host-Prevalence Zipfian Inverse Document Frequency Binary Rarity (`secops-statistical-hunter`)
+Catches newly dropped binaries, custom C2 implants, and isolated living-off-the-land utilities executing in the long tail of the active fleet ($\le 2$ adopter hosts across a fleet of $\ge 10$ active hosts) via pure **Host-Prevalence Inverse Document Frequency** ($\text{Zipf Score} = \ln(N_{\text{fleet\_hosts}} / N_{\text{adopter\_hosts}}) \ge 2.5$) directly over raw `PROCESS_LAUNCH` telemetry—requiring zero prior `GLOBAL_CONTEXT` or `DERIVED_CONTEXT` indexing and avoiding total-event-volume confounding from chatty daemons.
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// Goal: Detect polymorphic binaries and rare administrative utilities executing in the enterprise Zipfian long tail (<= 2 hosts) before GTI indexing.
+// Goal: Detect rare binary executions in the enterprise Zipfian long tail (<= 2 adopter hosts across >= 10 active fleet hosts) via pure host-prevalence inverse document frequency before GTI indexing.
 // Target Telemetry: UDM_EVENTS (PROCESS_LAUNCH)
-// Statistical Model: Power-Law / Zipfian Inverse Host Frequency Surprisal (zipf_rarity_score >= 4.0)
+// Statistical Model: Host-Prevalence Inverse Document Frequency Rarity (ZIPFIAN_PROCESS_RARITY, zipf_rarity_score = ln(N_fleet_hosts / N_adopter_hosts) >= 2.5)
 // Skill: secops-statistical-hunter
 // ============================================================================
 
-// Stage 1: Enterprise Fleetwide Binary Popularity & Adopter Host Breadth
-stage fleet_process_popularity {
-    metadata.event_type = "PROCESS_LAUNCH"
-    $binary = target.process.file.full_path
-    $binary != ""
-
-  match:
-    $binary by 1d
-
-  outcome:
-    $fleet_hosts = count_distinct(principal.asset.hostname)
-    $fleet_total_executions = count(metadata.id)
-}
-
-// Stage 2: Endpoint Local Binary Execution Activity
+// Stage 1: Endpoint Local Binary Execution Activity
 stage endpoint_process_burst {
     metadata.event_type = "PROCESS_LAUNCH"
+    $etype = metadata.event_type
     principal.asset.hostname = $host
     $binary = target.process.file.full_path
     $host != ""
     $binary != ""
 
   match:
-    $host, $binary by 1d
+    $etype, $host, $binary by 1d
 
   outcome:
     $endpoint_executions = count(metadata.id)
     $sample_commands = array_distinct(target.process.command_line)
 }
 
-// Root Stage: Zipfian Inverse Rank Departure & Asymptotic Tail Scoring
-$binary = $fleet_process_popularity.binary
+// Stage 2: Enterprise Fleetwide Binary Adopter Breadth across the Search Window
+stage fleet_process_popularity {
+    $etype = $endpoint_process_burst.etype
+    $binary = $endpoint_process_burst.binary
+
+  match:
+    $etype, $binary
+
+  outcome:
+    $fleet_hosts = count_distinct($endpoint_process_burst.host)
+    $fleet_total_executions = sum($endpoint_process_burst.endpoint_executions)
+}
+
+// Stage 3: Total Active Fleet Host Population across the Search Window
+stage fleet_host_total {
+    $etype = $endpoint_process_burst.etype
+
+  match:
+    $etype
+
+  outcome:
+    $total_fleet_hosts = count_distinct($endpoint_process_burst.host)
+}
+
+// Root Stage: Host-Prevalence Zipfian Rarity Scoring
+$etype = $endpoint_process_burst.etype
+$etype = $fleet_process_popularity.etype
+$etype = $fleet_host_total.etype
 $binary = $endpoint_process_burst.binary
+$binary = $fleet_process_popularity.binary
 $host = $endpoint_process_burst.host
+$ws = $endpoint_process_burst.window_start
 
 match:
-  $host, $binary by 1d
+  $host, $binary, $ws by 1d
 
 outcome:
   $adopter_hosts = max($fleet_process_popularity.fleet_hosts)
-  $fleet_volume = max($fleet_process_popularity.fleet_total_executions)
+  $fleet_total_hosts = max($fleet_host_total.total_fleet_hosts)
   $local_volume = max($endpoint_process_burst.endpoint_executions)
   $commands = array_distinct($endpoint_process_burst.sample_commands)
 
-  // 1. Safe Cardinalities
   $safe_hosts = if($adopter_hosts > 0, $adopter_hosts, 1)
-  $safe_volume = if($fleet_volume > 0, $fleet_volume, 1)
-
-  // 2. Zipfian Power-Law Log-Rank Departure
-  $log_fleet = math.log($safe_volume)
-  $log_adopters = math.log($safe_hosts)
-  $zipf_log_rank = $log_fleet - $log_adopters
-
-  // 3. Inverse Asymptotic Tail Multiplier
-  $tail_rarity = 1.0 / $safe_hosts
-  $zipf_rarity_score = $zipf_log_rank * (1.0 + $tail_rarity)
+  $safe_fleet_hosts = if($fleet_total_hosts > $safe_hosts, $fleet_total_hosts, $safe_hosts)
+  $host_ratio = 1.0 * $safe_fleet_hosts / $safe_hosts
+  $zipf_rarity_score = math.log($host_ratio)
 
   // 6 Core Evidence Pillars
   $observation_count = $local_volume
-  $baseline_active_samples = $fleet_volume
-  $baseline_mean = $log_fleet
-  $baseline_dispersion = $zipf_log_rank
+  $baseline_active_samples = $safe_fleet_hosts
+  $baseline_mean = 1.0 * $adopter_hosts / $safe_fleet_hosts
+  $baseline_dispersion = $zipf_rarity_score
   $fleet_prevalence = $adopter_hosts
   $distinct_binaries = 1
 
 condition:
-  $adopter_hosts <= 2
-  and $local_volume >= 5
-  and $zipf_rarity_score >= 4.0
+  $safe_fleet_hosts >= 10
+  and $adopter_hosts <= 2
+  and $observation_count >= 1
+  and $zipf_rarity_score >= 2.5
 
 order:
   $zipf_rarity_score desc
@@ -206,108 +244,128 @@ order:
 
 ---
 
----
-
 ### Scenario 2: Network C2 & Domain/IP Prioritization
 
 * **Curated Detection Operational Focus**: Matches outbound DNS and network connections against prioritized GTI domain and IP indicators.
-* **How Multi-Stage UEBA Extends Coverage**: Weights 30-day outbound HTTP request volume by event-relative WHOIS domain registration age (`creation_time`) and detects automated C2 callback timers via inter-arrival jitter ($\text{CV} \le 0.20$).
+* **How Multi-Stage UEBA Extends Coverage**: Weights 30-day per-(host, domain) outbound HTTP query Z-scores by event-relative WHOIS domain registration and expiration timestamps in `Query 2A`, then screens `Query 2A` candidate hosts in Wave 2 for uniform hourly outbound flow-gap ratios (`FLOW_GAP_RATIO_SCREEN`, $\text{CV} \le 0.20$) in `Query 2B`.
 
 #### Query 2A: 2-Stage Hybrid 30-Day HTTP Volume + Event-Relative WHOIS Domain Lifecycle Multiplier (`secops-risk-metrics-multistage`)
-Eliminates the 7-day GTI soaking coverage considerations and wall-clock `timestamp.current_seconds()` constraint by pairing the endpoint's 30-day HTTP query baseline (`metrics.http_queries_total`) with `GLOBAL_CONTEXT` WHOIS domain registration and expiration timestamps evaluated strictly relative to `max(metadata.event_timestamp.seconds)`. Newly registered domains ($\le 30\text{d}$ old at the time of the HTTP request) or expired/hijacked domains receive a $2.0\times$ lifecycle risk multiplier.
+Pairs per-(host, target_hostname) HTTP request volume on Mode A day `D` (`"2026-10-29"`) with the matching two-dimensional 30-day `metrics.http_queries_total` baseline (enforcing `$active_baseline_days >= 7` and continuous count dispersion floor $\max(\sigma, \sqrt{\max(\mu, 1)})$) and `GLOBAL_CONTEXT` WHOIS creation/expiration timestamps anchored strictly to observed event time (`max(metadata.event_timestamp.seconds)`). Newly registered domains ($\le 30\text{d}$ old at event time, guarded against missing `$created = 0`) receive a $2.5\times$ multiplier and expired registrations ($0 < \text{expires} \le \text{obs\_ts}$) receive a $3.0\times$ multiplier. Run over `[D-2, D+1)` so `GLOBAL_CONTEXT` WHOIS records overlap the search window; domains without WHOIS graph records drop out of this inner join and are covered by `DERIVED_CONTEXT` prevalence in `Query 4A` and Section 4.
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// Goal: Detect anomalous host HTTP volume targeting newly registered (<= 30d at event time) or expired WHOIS domains before GTI IOC indexing.
+// Goal: Detect anomalous per-(host, domain) HTTP query surges (Z >= 3.0) targeting newly registered (<= 30d at event time) or expired WHOIS domains before GTI IOC indexing.
 // Statistical Model: 2-Stage Hybrid 30-Day Behavioral Z-Score (metrics.http_queries_total) + GLOBAL_CONTEXT WHOIS Domain Lifecycle Multiplier
-// ARCHITECTURE: 2-STAGE HYBRID METRIC + GLOBAL_CONTEXT WHOIS DOMAIN LIFECYCLE PIPELINE
+// ARCHITECTURE: 2-STAGE DUAL-PLANE WHOIS DOMAIN LIFECYCLE PIPELINE
 // Skill: secops-risk-metrics-multistage
 // ============================================================================
 
-// Stage 1: Endpoint HTTP Activity + 30-Day Baseline with event timestamp tracking
-stage http_activity_anomalies {
+// Stage 1: Macro 30-Day HTTP Query Baseline per (host, domain) on Mode A day D
+stage stage1_egress_baseline {
     (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
+    timestamp.get_date(metadata.event_timestamp.seconds) = "2026-10-29"
     principal.asset.hostname = $host
     target.hostname = $domain
     $host != ""
     $domain != ""
+    not re.regex(target.hostname, `(?i)\.(in-addr\.arpa|ip6\.arpa|local)$`)
 
   match:
     $host, $domain by 1d
 
   outcome:
-    $http_count = count(metadata.id)
-    $latest_event_ts = max(metadata.event_timestamp.seconds)
-    $b_avg = max(metrics.http_queries_total(
+    $observed_val = count(metadata.id)
+    $distinct_ports = count_distinct(target.port)
+    $hist_mean = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.asset.hostname: principal.asset.hostname
+        principal.asset.hostname: principal.asset.hostname,
+        target.hostname: target.hostname
     ))
-    $b_std = max(metrics.http_queries_total(
+    $hist_stddev = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.asset.hostname: principal.asset.hostname
+        principal.asset.hostname: principal.asset.hostname,
+        target.hostname: target.hostname
     ))
-    $b_days = max(metrics.http_queries_total(
+    $hist_active_days = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
-        principal.asset.hostname: principal.asset.hostname
+        principal.asset.hostname: principal.asset.hostname,
+        target.hostname: target.hostname
     ))
-    $z_score = ($http_count - $b_avg) / if($b_std > 0, $b_std, 1.0)
-
-  condition:
-    $http_count >= 5 and $b_days >= 5
+    $event_timestamp = max(metadata.event_timestamp.seconds)
 }
 
-// Root Stage: Join with GLOBAL_CONTEXT WHOIS Creation & Expiration Timestamps
-$host = $http_activity_anomalies.host
-$domain = $http_activity_anomalies.domain
+// Stage 2: Chronicle Global Context WHOIS Lookup (Creation & Expiration Timestamps)
+stage stage2_whois_lifecycle {
+    $whois.graph.metadata.source_type = "GLOBAL_CONTEXT"
+    $whois.graph.metadata.vendor_name = "WHOIS"
+    $whois.graph.metadata.entity_type = "DOMAIN_NAME"
+    $whois.graph.entity.domain.name = $domain
+    $domain != ""
 
-$whois.graph.metadata.entity_type = "DOMAIN_NAME"
-$whois.graph.metadata.vendor_name = "WHOIS"
-$whois.graph.metadata.source_type = "GLOBAL_CONTEXT"
-$whois.graph.entity.domain.name = $domain
-$whois.graph.entity.domain.creation_time.seconds > 0
+  match:
+    $domain
+
+  outcome:
+    $creation_ts = max($whois.graph.entity.domain.creation_time.seconds)
+    $expiration_ts = min($whois.graph.entity.domain.expiration_time.seconds)
+}
+
+// Root Stage: Continuous Count Dispersion Floor & Event-Relative WHOIS Lifecycle Scoring
+$host = $stage1_egress_baseline.host
+$domain = $stage1_egress_baseline.domain
+$domain = $stage2_whois_lifecycle.domain
 
 match:
   $host, $domain by 1d
 
 outcome:
-  $observed_http = max($http_activity_anomalies.http_count)
-  $event_ts = max($http_activity_anomalies.latest_event_ts)
-  $z_score = max($http_activity_anomalies.z_score)
-  $creation_ts = max($whois.graph.entity.domain.creation_time.seconds)
-  $expiration_ts = max($whois.graph.entity.domain.expiration_time.seconds)
+  $observed = max($stage1_egress_baseline.observed_val)
+  $mean = max($stage1_egress_baseline.hist_mean)
+  $stddev = max($stage1_egress_baseline.hist_stddev)
+  $mean_floor_arg = if($mean > 1.0, $mean, 1.0)
+  $dispersion_floor = math.sqrt($mean_floor_arg)
+  $safe_stddev = if($stddev > $dispersion_floor, $stddev, $dispersion_floor)
+  $z_score = ($observed - $mean) / $safe_stddev
+  $active_baseline_days = max($stage1_egress_baseline.hist_active_days)
 
-  // Event-relative domain age in seconds (fixes timestamp.current_seconds() retrohunt constraint)
-  $domain_age_seconds = $event_ts - $creation_ts
-  $domain_age_days = $domain_age_seconds / 86400
+  $obs_ts = max($stage1_egress_baseline.event_timestamp)
+  $created = max($stage2_whois_lifecycle.creation_ts)
+  $expires = max($stage2_whois_lifecycle.expiration_ts)
 
-  // Lifecycle Risk Multiplier: 2.0x if newly registered (<= 30 days) or expired before event
-  $is_newly_registered = if($domain_age_seconds >= 0 and $domain_age_seconds <= 2592000, 1, 0)
-  $is_expired = if($expiration_ts > 0 and $expiration_ts < $event_ts, 1, 0)
-  $lifecycle_multiplier = if($is_newly_registered = 1 or $is_expired = 1, 2.0, 1.0)
+  // Event-relative domain age in days (guarded against missing $created = 0)
+  $raw_age_days = ($obs_ts - $created) / 86400.0
+  $domain_age_days = if($created > 0, $raw_age_days, 9999.0)
+  $is_nrd = if($created > 0 and $domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)
+  $is_expired = if($expires <= $obs_ts and $expires > 0, 1.0, 0.0)
+  $days_to_expiration = ($expires - $obs_ts) / 86400.0
 
-  $pos_z = if($z_score > 0, $z_score, 0.5)
-  $fused_threat_score = $pos_z * $lifecycle_multiplier
+  // Lifecycle Risk Multiplier: 3.0x for expired domains, 2.5x for NRD (<= 30d)
+  $nrd_mult = if($is_nrd = 1.0, 2.5, 1.0)
+  $whois_multiplier = if($is_expired = 1.0, 3.0, $nrd_mult)
+  $fused_threat_score = $z_score * $whois_multiplier
 
 condition:
-  ($is_newly_registered = 1 or $is_expired = 1)
-  and $fused_threat_score >= 3.0
+  $active_baseline_days >= 7
+  and $z_score >= 3.0
+  and ($is_nrd = 1.0 or $is_expired = 1.0)
 
 order:
   $fused_threat_score desc
 ```
 
-#### Query 2B: 4-Stage UDM-Gated Inter-Arrival Jitter Coefficient of Variation on Outbound Network Callbacks (`secops-statistical-hunter`)
-Evaluates hourly outbound network callback inter-arrival pacing ($\text{CV} = \sigma / \mu \le 0.25$) strictly on candidate hosts surfaced by `Query 2A` via UDM Loopback (`re.regex(security_result.rule_name, `:q[0-9]+_query_2a`)`).
+#### Query 2B: 4-Stage UDM-Gated Outbound Flow-Gap Ratio Regularity Screen (`secops-statistical-hunter`)
+Screens candidate hosts surfaced by `Query 2A` via UDM Loopback (`re.regex(security_result.rule_name, `:q[0-9]+_query_2a`)`) for uniform hourly outbound span-to-count flow-gap ratios ($\text{CV} = \sigma_{\text{gap}} / \mu_{\text{gap}} \le 0.20$) across $\ge 6$ active hours and $\ge 25$ external connections (`FLOW_GAP_RATIO_SCREEN`, excluding RFC 1918, loopback, multicast, broadcast, and link-local noise). Because stateless bucketed YARA-L measures cross-bucket dispersion of within-bucket `(max(ts) - min(ts)) / count` ratios rather than consecutive inter-packet $\Delta t$ intervals, exact sub-hour consecutive callback jitter on surfaced pairs can be confirmed post-query via `C2_BEACONING_JITTER` (`micro_python_helpers.py c2-jitter`).
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// ARCHITECTURE: 4-STAGE UDM-GATED INTER-ARRIVAL JITTER COEFFICIENT OF VARIATION PIPELINE
-// Goal: Detect automated C2 callback cadence (CV <= 0.25) on candidate hosts from Query 2A (strictly gated by Query 2A UDM Loopback candidates).
-// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Coefficient of Variation (CV = sigma / mu <= 0.25)
+// ARCHITECTURE: 4-STAGE UDM-GATED OUTBOUND FLOW-GAP RATIO SCREEN PIPELINE
+// Goal: Screen external outbound pairs on candidate hosts from Query 2A for uniform hourly bucket flow-gap ratios (CV <= 0.20 across >= 6 active hours and >= 25 connections).
+// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Cross-Bucket Flow-Gap Ratio Dispersion (FLOW_GAP_RATIO_SCREEN, CV = sigma_gap / mu_gap <= 0.20)
+// Skill: secops-statistical-hunter
 // ============================================================================
 
 stage stage1_upstream_2a_candidates {
@@ -331,30 +389,39 @@ stage stage1_upstream_2a_candidates {
 stage host_intervals {
     metadata.event_type = "NETWORK_CONNECTION"
     network.sent_bytes > 64
-    target.ip = $target_ip
+    target.ip = $dst_ip
+    $dst_ip != ""
+    $dst_ip != "::1"
     $host = strings.coalesce(principal.asset.hostname, principal.hostname, principal.asset.ip[0], principal.ip[0])
     $host != ""
-    $target_ip != ""
-    not net.ip_in_range_cidr($target_ip, "10.0.0.0/8")
-    not net.ip_in_range_cidr($target_ip, "172.16.0.0/12")
-    not net.ip_in_range_cidr($target_ip, "192.168.0.0/16")
+    not net.ip_in_range_cidr($dst_ip, "10.0.0.0/8")
+    not net.ip_in_range_cidr($dst_ip, "172.16.0.0/12")
+    not net.ip_in_range_cidr($dst_ip, "192.168.0.0/16")
+    not net.ip_in_range_cidr($dst_ip, "127.0.0.0/8")
+    not net.ip_in_range_cidr($dst_ip, "224.0.0.0/4")
+    not net.ip_in_range_cidr($dst_ip, "169.254.0.0/16")
+    not net.ip_in_range_cidr($dst_ip, "255.255.255.255/32")
+    not net.ip_in_range_cidr($dst_ip, "fe80::/10")
+    not net.ip_in_range_cidr($dst_ip, "ff00::/8")
     $ts = metadata.event_timestamp.seconds
 
   match:
-    $host, $target_ip by 1h
+    $host, $dst_ip by 1h
 
   outcome:
+    $first_seen = min($ts)
+    $last_seen = max($ts)
     $conn_count = count(metadata.id)
-    $avg_gap = (max($ts) - min($ts)) / (count(metadata.id) + 1.0)
+    $avg_gap = 1.0 * (max($ts) - min($ts)) / count(metadata.id)
     $hourly_sent = sum(network.sent_bytes)
 }
 
 stage timing_stats {
     $host = $host_intervals.host
-    $target_ip = $host_intervals.target_ip
+    $dst_ip = $host_intervals.dst_ip
 
   match:
-    $host, $target_ip
+    $host, $dst_ip
 
   outcome:
     $mean_gap = avg($host_intervals.avg_gap)
@@ -366,10 +433,10 @@ stage timing_stats {
 
 $host = $stage1_upstream_2a_candidates.host
 $host = $timing_stats.host
-$target_ip = $timing_stats.target_ip
+$dst_ip = $timing_stats.dst_ip
 
 match:
-  $host, $target_ip
+  $host, $dst_ip
 
 outcome:
   $upstream_z = max($stage1_upstream_2a_candidates.upstream_2a_z)
@@ -377,18 +444,18 @@ outcome:
   $baseline_active_samples = max($timing_stats.active_hours)
   $baseline_mean = max($timing_stats.mean_gap)
   $baseline_dispersion = max($timing_stats.stddev_gap)
-  $fleet_prevalence = 1
+  $fleet_prevalence = 0 - 1
   $distinct_binaries = max($timing_stats.total_conns)
   $total_outbound_bytes = max($timing_stats.total_sent_bytes)
 
-  $safe_mean = if($baseline_mean > 0, $baseline_mean, 1.0)
+  $safe_mean = if($baseline_mean > 0.0, $baseline_mean, 1.0)
   $cv = $baseline_dispersion / $safe_mean
 
 condition:
-  $baseline_active_samples >= 3
-  and $observation_count >= 20
-  and $baseline_mean >= 2.0
-  and $cv <= 0.25
+  $baseline_active_samples >= 6
+  and $observation_count >= 25
+  and $baseline_mean >= 1.0
+  and $cv <= 0.20
 
 order:
   $cv asc
@@ -396,30 +463,28 @@ order:
 
 ---
 
----
-
 ### Scenario 3: Inbound Authentication from Suspicious / Proxy Infrastructure
 
 * **Curated Detection Operational Focus**: Flags authentication events originating from known malicious or Tor/proxy IP indicators.
-* **How Multi-Stage UEBA Extends Coverage**: Unifies cold-start and 30-day authentication baselines (`Option 1`) with geodesic impossible-travel velocity ($\ge 900\text{ km/h}$) and Beta-Binomial authentication failure-rate regularization.
+* **How Multi-Stage UEBA Extends Coverage**: Combines a single-stage conditional union of 30-day failed (`metrics.auth_attempts_fail`) and successful (`metrics.auth_attempts_success`) login Z-scores ($D^2 \ge 12.25$) in `Query 3A` with UDM-gated Leave-One-Out Beta-Binomial predictive failure-rate standardization ($Z_{\text{fail}} \ge 3.0\sigma$) in `Query 3B`.
 
-#### Query 3A: 3-Stage Dual-Sector Authentication Failures + Authentication Successes Fusion (`secops-risk-metrics-multistage`)
-Directly fixes the `$blocked = 0` self-suppression constraint in curated detection rules by explicitly fusing 30-day anomalies in **failed logins (`metrics.auth_attempts_fail`)** with **successful logins (`metrics.auth_attempts_success`)** on the same user (`$composite_threat_norm_sq = Z_{\text{fail}}^2 + Z_{\text{success}}^2 \ge 12.25$). Instead of a failed login *suppressing* a subsequent successful breach, the combination of anomalous failures followed by anomalous successes *amplifies* the Euclidean risk distance above $3.5\sigma$ ($D^2 \ge 12.25$).
+#### Query 3A: 2-Stage Dual-Sector Authentication Failures + Authentication Successes Fusion (`secops-risk-metrics-multistage`)
+Addresses the `$blocked = 0` self-suppression constraint in deterministic authentication rules by evaluating both **failed logins (`metrics.auth_attempts_fail`)** and **successful logins (`metrics.auth_attempts_success`)** for each `target.user.userid` inside a single conditional-sum union stage (`sector_union`). Using a single union stage preserves pure brute-force outliers when `ALLOW` events are zero on the scored day, applies continuous count dispersion floors $\max(\sigma, \sqrt{\max(\mu, 1)})$ and 7-active-day maturity gates (`>= 7` active days) independently to each metric, and scores half-rectified squared Euclidean distance `$composite_threat_norm_sq = Z_fail^2 + Z_success^2 >= 12.25`. Note that because `auth_attempts_fail` and `auth_attempts_success` belong to the same `AUTH` telemetry family, correlated login bursts exceed independent $\chi^2_2$ tail rates (`WS7-03`).
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// Goal: Detect inbound brute-force / credential-stuffing attacks that culminate in a successful login (fixing the ATI $blocked = 0 suppression constraint).
-// Statistical Model: 3-Stage Dual-Sector Euclidean Risk Fusion (metrics.auth_attempts_fail + metrics.auth_attempts_success, D^2 >= 12.25)
-// ARCHITECTURE: 3-STAGE SAME-ENTITY MULTI-SECTOR TELEMETRY FUSION
+// Goal: Detect inbound brute-force and credential-stuffing attacks culminating in anomalous login failures and/or successes without dropping single-sector outliers.
+// Statistical Model: 2-Stage Single-Union Dual-Sector Euclidean Risk Fusion (metrics.auth_attempts_fail + metrics.auth_attempts_success, D^2 >= 12.25)
+// ARCHITECTURE: DUAL-SECTOR THREAT FUSION (SINGLE-STAGE UNION)
+// ADVISORY: Same-family pair (auth_attempts_fail + auth_attempts_success) carries positive inter-sector correlation; composite D^2 >= 12.25 exceeds independent chi^2_2 tail rates (WS7-03).
 // Skill: secops-risk-metrics-multistage
 // ============================================================================
 
-// --- STAGE 1: Sector A — Authentication Failures (UDM Source 1 of 2) ---
-stage sector_a {
+// Stage 1: Single-Stage Authentication Union (preserves single-sector outliers when companion count = 0)
+stage sector_union {
     metadata.event_type = "USER_LOGIN"
-    not security_result.action = "ALLOW"
     target.user.userid = $entity
     $entity != ""
 
@@ -427,7 +492,7 @@ stage sector_a {
     $entity by 1d
 
   outcome:
-    $a_obs = count(metadata.id)
+    $a_obs = sum(if(not security_result.action = "ALLOW", 1, 0))
     $a_avg = max(metrics.auth_attempts_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         target.user.userid: target.user.userid
@@ -440,20 +505,8 @@ stage sector_a {
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
         target.user.userid: target.user.userid
     ))
-}
 
-// --- STAGE 2: Sector B — Authentication Successes (UDM Source 2 of 2) ---
-stage sector_b {
-    metadata.event_type = "USER_LOGIN"
-    security_result.action = "ALLOW"
-    target.user.userid = $entity
-    $entity != ""
-
-  match:
-    $entity by 1d
-
-  outcome:
-    $b_obs = count(metadata.id)
+    $b_obs = sum(if(security_result.action = "ALLOW", 1, 0))
     $b_avg = max(metrics.auth_attempts_success(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         target.user.userid: target.user.userid
@@ -468,38 +521,34 @@ stage sector_b {
     ))
 }
 
-// --- STAGE 3 (Root): Cross-Sector Join & Euclidean Distance Scoring ---
-$entity = $sector_a.entity
-$entity = $sector_b.entity
-$ws = $sector_a.window_start
-$ws = $sector_b.window_start
+// Root Stage: Continuous Count Dispersion Floors, 7-Day Maturity Gates & Rectified Euclidean Norm
+$entity = $sector_union.entity
 
 match:
-  $entity, $ws by 1d
+  $entity by 1d
 
 outcome:
-  $a_observed = max($sector_a.a_obs)
-  $a_mean = max($sector_a.a_avg)
-  $a_stddev = max($sector_a.a_std)
-  $a_active_days = max($sector_a.a_days)
-
-  $b_observed = max($sector_b.b_obs)
-  $b_mean = max($sector_b.b_avg)
-  $b_stddev = max($sector_b.b_std)
-  $b_active_days = max($sector_b.b_days)
-
-  // Rectified, baseline-gated sector Z-scores
-  $z_a_raw = ($a_observed - $a_mean) / if($a_stddev > 0, $a_stddev, 1.0)
-  $z_b_raw = ($b_observed - $b_mean) / if($b_stddev > 0, $b_stddev, 1.0)
+  $a_observed = max($sector_union.a_obs)
+  $a_mean = max($sector_union.a_avg)
+  $a_stddev = max($sector_union.a_std)
+  $a_active_days = max($sector_union.a_days)
+  $a_floor = math.sqrt(if($a_mean > 1.0, $a_mean, 1.0))
+  $safe_a_std = if($a_stddev > $a_floor, $a_stddev, $a_floor)
+  $z_a_raw = ($a_observed - $a_mean) / $safe_a_std
   $z_a_pos = if($z_a_raw > 0, $z_a_raw, 0.0)
-  $z_b_pos = if($z_b_raw > 0, $z_b_raw, 0.0)
-  $z_a = if($a_active_days >= 5, $z_a_pos, 0.0)
-  $z_b = if($b_active_days >= 5, $z_b_pos, 0.0)
+  $z_a = if($a_observed > 0 and $a_active_days >= 7, $z_a_pos, 0.0)
 
-  // Euclidean Vector Threat Norm D^2 = Z_a^2 + Z_b^2
-  $z_a_sq = $z_a * $z_a
-  $z_b_sq = $z_b * $z_b
-  $composite_threat_norm_sq = $z_a_sq + $z_b_sq
+  $b_observed = max($sector_union.b_obs)
+  $b_mean = max($sector_union.b_avg)
+  $b_stddev = max($sector_union.b_std)
+  $b_active_days = max($sector_union.b_days)
+  $b_floor = math.sqrt(if($b_mean > 1.0, $b_mean, 1.0))
+  $safe_b_std = if($b_stddev > $b_floor, $b_stddev, $b_floor)
+  $z_b_raw = ($b_observed - $b_mean) / $safe_b_std
+  $z_b_pos = if($z_b_raw > 0, $z_b_raw, 0.0)
+  $z_b = if($b_observed > 0 and $b_active_days >= 7, $z_b_pos, 0.0)
+
+  $composite_threat_norm_sq = ($z_a * $z_a) + ($z_b * $z_b)
 
 condition:
   $composite_threat_norm_sq >= 12.25
@@ -508,16 +557,17 @@ order:
   $composite_threat_norm_sq desc
 ```
 
-#### Query 3B: 4-Stage UDM-Gated Beta-Binomial Empirical Bayes Authentication Failure Rate (`secops-statistical-hunter`)
-Evaluates hourly authentication failure-rate anomalies via **Beta-Binomial Empirical Bayes Shrinkage** strictly on candidate accounts surfaced by `Query 3A` via UDM Loopback (`re.regex(security_result.rule_name, `:q[0-9]+_query_3a`)`).
+#### Query 3B: 4-Stage UDM-Gated Leave-One-Out Beta-Binomial Authentication Failure Rate (`secops-statistical-hunter`)
+Evaluates hourly authentication failure surges on candidate identities surfaced by `Query 3A` via UDM Loopback (`re.regex(security_result.rule_name, `:q[0-9]+_query_3a`)`) using **Leave-One-Out Conjugate Beta-Binomial Updating**. Updates a $\text{Beta}(1.0, 19.0)$ hyperprior ($\approx 5\%$ baseline failure rate) with each user's leave-one-out prior failures and successes across the window, then standardizes each hour's failure count against exact Beta-Binomial predictive variance $n p_0 (1 - p_0) \frac{M + n}{M + 1}$ (`$fail_z >= 3.0`), suppressing service accounts with chronically noisy credentials while surfacing sudden credential-stuffing bursts on clean accounts.
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// ARCHITECTURE: 4-STAGE UDM-GATED BETA-BINOMIAL EMPIRICAL BAYES AUTH FAILURE RATE PIPELINE
-// Goal: Detect credential stuffing and brute-force failure-rate surges on candidate identities from Query 3A (strictly gated by Query 3A UDM Loopback candidates).
-// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Beta-Binomial Empirical Bayes Shrinkage
+// ARCHITECTURE: 4-STAGE UDM-GATED LEAVE-ONE-OUT BETA-BINOMIAL FAILURE STANDARDIZATION PIPELINE
+// Goal: Detect hourly credential-stuffing and brute-force failure-rate surges (fail_z >= 3.0) on candidate identities from Query 3A via Leave-One-Out Beta-Binomial predictive variance.
+// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Leave-One-Out Conjugate Beta-Binomial Predictive Failure Z-Score (BETA_BINOMIAL_FAILURE, fail_z >= 3.0)
+// Skill: secops-statistical-hunter
 // ============================================================================
 
 stage stage1_upstream_3a_candidates {
@@ -538,7 +588,7 @@ stage stage1_upstream_3a_candidates {
     $upstream_3a_z = max(security_result.confidence_score)
 }
 
-stage hourly_auth_stats {
+stage entity_hourly_trials {
     metadata.event_type = "USER_LOGIN"
     $user = strings.coalesce(target.user.userid, principal.user.userid)
     $user != ""
@@ -547,164 +597,189 @@ stage hourly_auth_stats {
     $user by 1h
 
   outcome:
-    $total_attempts = count(metadata.id)
-    $failed_attempts = sum(if(security_result.action = "BLOCK", 1, 0))
-    $distinct_src_ips = count_distinct(principal.ip)
+    $total_trials = count(metadata.id)
+    $failed_trials = sum(if(security_result.action = "BLOCK" or security_result.action = "FAIL", 1, 0))
+    $distinct_sources = count_distinct(principal.ip)
 }
 
-stage user_prior_stats {
-    $user = $hourly_auth_stats.user
+stage entity_historical_rates {
+    $user = $entity_hourly_trials.user
 
   match:
     $user
 
   outcome:
-    $hist_mean_total = avg($hourly_auth_stats.total_attempts)
-    $hist_mean_fail = avg($hourly_auth_stats.failed_attempts)
-    $hist_stddev_fail = stddev($hourly_auth_stats.failed_attempts)
-    $active_windows = count($hourly_auth_stats.window_start)
+    $total_historical_events = sum($entity_hourly_trials.total_trials)
+    $total_historical_fails = sum($entity_hourly_trials.failed_trials)
+    $active_hours = count($entity_hourly_trials.window_start)
 }
 
 $user = $stage1_upstream_3a_candidates.user
-$user = $hourly_auth_stats.user
-$user = $user_prior_stats.user
-$ws = $hourly_auth_stats.window_start
+$user = $entity_hourly_trials.user
+$user = $entity_historical_rates.user
+$ws = $entity_hourly_trials.window_start
 
 match:
   $user, $ws by 1h
 
 outcome:
   $upstream_z = max($stage1_upstream_3a_candidates.upstream_3a_z)
-  $n_trials = max($hourly_auth_stats.total_attempts)
-  $k_failures = max($hourly_auth_stats.failed_attempts)
-  $prior_mean_n = max($user_prior_stats.hist_mean_total)
-  $prior_mean_k = max($user_prior_stats.hist_mean_fail)
+  $observation_count = max($entity_hourly_trials.failed_trials)
+  $hourly_trials_count = max($entity_hourly_trials.total_trials)
+  $safe_trials = if($hourly_trials_count > 0, $hourly_trials_count, 1)
+  $baseline_active_samples = max($entity_historical_rates.active_hours)
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = max($entity_hourly_trials.distinct_sources)
 
-  $alpha_0 = $prior_mean_k + 1.0
-  $raw_beta = $prior_mean_n - $prior_mean_k
-  $beta_0 = if($raw_beta > 0, $raw_beta, 1.0) + 5.0
-
-  $posterior_fail_rate = ($alpha_0 + $k_failures) / ($alpha_0 + $beta_0 + $n_trials)
-  $prior_fail_rate = $alpha_0 / ($alpha_0 + $beta_0)
-  $safe_prior_rate = if($prior_fail_rate > 0, $prior_fail_rate, 0.05)
-
-  $beta_binomial_score = ($posterior_fail_rate / $safe_prior_rate) * math.log($k_failures + 1.0)
-  $z_score = $beta_binomial_score
-
-  $observation_count = $k_failures
-  $baseline_active_samples = max($user_prior_stats.active_windows)
-  $baseline_mean = $prior_mean_k
-  $baseline_dispersion = max($user_prior_stats.hist_stddev_fail)
-  $fleet_prevalence = 1
-  $distinct_binaries = max($hourly_auth_stats.distinct_src_ips)
+  // Leave-One-Out Beta(1.0, 19.0) Prior & Exact Beta-Binomial Predictive Standardization
+  $raw_prior_fails = max($entity_historical_rates.total_historical_fails) - $observation_count
+  $prior_fails = if($raw_prior_fails > 0, $raw_prior_fails, 0)
+  $raw_prior_events = max($entity_historical_rates.total_historical_events) - $hourly_trials_count
+  $prior_events = if($raw_prior_events > $prior_fails, $raw_prior_events, $prior_fails)
+  $alpha_prior = 1.0 + $prior_fails
+  $beta_prior = 19.0 + ($prior_events - $prior_fails)
+  $prior_total = $alpha_prior + $beta_prior
+  $baseline_mean = $alpha_prior / $prior_total
+  $posterior_fail_prob = ($alpha_prior + $observation_count) / ($prior_total + $safe_trials)
+  $pred_var = $safe_trials * $baseline_mean * (1.0 - $baseline_mean) * (($prior_total + $safe_trials) / ($prior_total + 1.0))
+  $safe_pred_var = if($pred_var > 0.25, $pred_var, 0.25)
+  $baseline_dispersion = math.sqrt($safe_pred_var)
+  $fail_z = ($observation_count - ($safe_trials * $baseline_mean)) / $baseline_dispersion
 
 condition:
-  $baseline_active_samples >= 2
-  and $k_failures >= 5
-  and $posterior_fail_rate >= 0.35
-  and $beta_binomial_score >= 3.5
+  $baseline_active_samples >= 6
+  and $hourly_trials_count >= 15
+  and $observation_count >= 8
+  and $fail_z >= 3.0
 
 order:
-  $beta_binomial_score desc
+  $fail_z desc
 ```
 
 ---
 
----
-
-### Scenario 4: ATI Composite Breach Escalation & Data Exfiltration
+### Scenario 4: ATI Composite Breach Escalation & Rare-Domain Network Surges
 
 * **Curated Detection Operational Focus**: Correlates prioritized indicator hits with subsequent host or network activity.
-* **How Multi-Stage UEBA Extends Coverage**: Fuses 30-day Outbound Network Bytes and Alert/Execution baselines ($D^2 \ge 12.25$) with Producer-Consumer Byte Ratio inversion ($\rho \ge 0.80$) to confirm active post-compromise data staging.
+* **How Multi-Stage UEBA Extends Coverage**: Pairs 30-day per-(host, domain) HTTP query Z-scores filtered by 10-day `DERIVED_CONTEXT` organizational domain prevalence (`rolling_max <= 3`) in `Query 4A` with UDM-gated Leave-One-Out hourly outbound network connection burst Z-scores (`BURST_Z_SCREEN`, $Z_{\text{burst}} \ge 3.0\sigma$) on `Query 4A` candidate hosts in `Query 4B`.
 
 #### Query 4A: 2-Stage Hybrid 30-Day HTTP Volume + Entity Context Graph 10-Day Domain Prevalence (`secops-risk-metrics-multistage`)
-Replaces the brittle upstream `$ati` `GTI_IOC` anchor in `c_ati_path_domain_c2_to_exfil` with `DERIVED_CONTEXT` **10-day rolling organizational domain prevalence** (`rolling_max <= 3`) fused with the host's 30-day `metrics.http_queries_total` behavioral baseline. Any endpoint that surges in HTTP communication to an external domain seen on $\le 3$ hosts across the entire enterprise over the past 10 days is surfaced directly—whether or not that domain is known to GTI.
+Replaces static `GTI_IOC` domain anchors with 10-day rolling `DERIVED_CONTEXT` organizational domain prevalence (`day_count = 10`, `rolling_max <= 3`) joined against each `(principal.asset.hostname, target.hostname)` pair's 30-day `metrics.http_queries_total` baseline (with continuous count dispersion floor $\max(\sigma, \sqrt{\max(\mu, 1)})$ and `$active_baseline_days >= 7`). Run over `[D-2, D+1)` with Stage 1 pinned to Mode A day `"2026-10-29"`; note that `stage2_domain_derived_context` is an inner join, so domains absent from `DERIVED_CONTEXT` drop out rather than scoring as rare.
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// Goal: Detect C2 communication and HTTP exfiltration surges to organizationally rare domains (10-day DERIVED_CONTEXT rolling_max <= 3 hosts) without requiring a prior GTI IOC match.
+// Goal: Detect per-(host, domain) HTTP communication surges (Z >= 3.0) targeting organizationally rare domains (10-day DERIVED_CONTEXT rolling_max <= 3 hosts) without requiring a prior GTI IOC match.
 // Statistical Model: 2-Stage Hybrid 30-Day Behavioral Z-Score (metrics.http_queries_total) + DERIVED_CONTEXT 10-Day Domain Prevalence
-// ARCHITECTURE: 2-STAGE HYBRID METRIC + DERIVED_CONTEXT DOMAIN PREVALENCE PIPELINE
+// ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT DOMAIN PREVALENCE PIPELINE
 // Skill: secops-risk-metrics-multistage
 // ============================================================================
 
-// Stage 1: Endpoint HTTP Activity + 30-Day Behavioral Baseline per (host, target_domain)
-stage http_metric_anomalies {
+// Stage 1: Macro 30-Day Destination HTTP Query Baseline per (host, domain) on Mode A day D
+stage stage1_query_baseline {
     (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
+    timestamp.get_date(metadata.event_timestamp.seconds) = "2026-10-29"
     principal.asset.hostname = $host
     target.hostname = $domain
     $host != ""
     $domain != ""
+    not re.regex(target.hostname, `(?i)\.(in-addr\.arpa|ip6\.arpa|local)$`)
 
   match:
     $host, $domain by 1d
 
   outcome:
-    $http_count = count(metadata.id)
-    $b_avg = max(metrics.http_queries_total(
+    $observed_val = count(metadata.id)
+    $distinct_ports = count_distinct(target.port)
+    $hist_mean = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.asset.hostname: principal.asset.hostname
+        principal.asset.hostname: principal.asset.hostname,
+        target.hostname: target.hostname
     ))
-    $b_std = max(metrics.http_queries_total(
+    $hist_stddev = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.asset.hostname: principal.asset.hostname
+        principal.asset.hostname: principal.asset.hostname,
+        target.hostname: target.hostname
     ))
-    $b_days = max(metrics.http_queries_total(
+    $hist_active_days = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
-        principal.asset.hostname: principal.asset.hostname
+        principal.asset.hostname: principal.asset.hostname,
+        target.hostname: target.hostname
     ))
-    $z_score = ($http_count - $b_avg) / if($b_std > 0, $b_std, 1.0)
-
-  condition:
-    $http_count >= 10 and $b_days >= 5
+    $event_timestamp = max(metadata.event_timestamp.seconds)
 }
 
-// Root Stage: Enrich with DERIVED_CONTEXT 10-Day Domain Prevalence (rolling_max <= 3)
-$host = $http_metric_anomalies.host
-$domain = $http_metric_anomalies.domain
+// Stage 2: Chronicle Derived Context Graph Lookup (10-Day Domain Prevalence & First Seen)
+stage stage2_domain_derived_context {
+    $dom.graph.metadata.source_type = "DERIVED_CONTEXT"
+    $dom.graph.metadata.entity_type = "DOMAIN_NAME"
+    $dom.graph.entity.domain.name = $domain
+    $dom.graph.entity.domain.prevalence.day_count = 10
+    $dom.graph.entity.domain.prevalence.rolling_max <= 3
+    $dom.graph.entity.domain.prevalence.rolling_max > 0
+    $domain != ""
 
-$g.graph.metadata.entity_type = "DOMAIN_NAME"
-$g.graph.metadata.source_type = "DERIVED_CONTEXT"
-$g.graph.entity.domain.name = $domain
-$g.graph.entity.domain.prevalence.day_count = 10
-$g.graph.entity.domain.prevalence.rolling_max <= 3
-$g.graph.entity.domain.prevalence.rolling_max > 0
+  match:
+    $domain
+
+  outcome:
+    $enterprise_day_count = min($dom.graph.entity.domain.prevalence.day_count)
+    $enterprise_rolling_max = max($dom.graph.entity.domain.prevalence.rolling_max)
+    $first_seen_ts = min($dom.graph.entity.domain.first_seen_time.seconds)
+    $last_seen_ts = max($dom.graph.entity.domain.last_seen_time.seconds)
+}
+
+// Root Stage: Continuous Count Dispersion Floor & Enterprise Domain Prevalence Multiplier
+$host = $stage1_query_baseline.host
+$domain = $stage1_query_baseline.domain
+$domain = $stage2_domain_derived_context.domain
 
 match:
   $host, $domain by 1d
 
 outcome:
-  $observed_http = max($http_metric_anomalies.http_count)
-  $baseline_mean = max($http_metric_anomalies.b_avg)
-  $baseline_stddev = max($http_metric_anomalies.b_std)
-  $z_score = max($http_metric_anomalies.z_score)
-  $org_prevalence_10d = max($g.graph.entity.domain.prevalence.rolling_max)
-  $domain_first_seen = max($g.graph.entity.domain.first_seen_time.seconds)
+  $observed_queries = max($stage1_query_baseline.observed_val)
+  $mean_queries = max($stage1_query_baseline.hist_mean)
+  $stddev_queries = max($stage1_query_baseline.hist_stddev)
+  $mean_floor_arg = if($mean_queries > 1.0, $mean_queries, 1.0)
+  $dispersion_floor = math.sqrt($mean_floor_arg)
+  $safe_stddev = if($stddev_queries > $dispersion_floor, $stddev_queries, $dispersion_floor)
+  $z_score = ($observed_queries - $mean_queries) / $safe_stddev
+  $active_baseline_days = max($stage1_query_baseline.hist_active_days)
 
-  // Rarity multiplier: singleton domain in the org gets 2.0x boost; <= 3 hosts gets 1.5x
-  $rarity_multiplier = if($org_prevalence_10d <= 1, 2.0, 1.5)
-  $pos_z = if($z_score > 0, $z_score, 0.5)
-  $fused_threat_score = $pos_z * $rarity_multiplier
+  $fleet_prevalence = max($stage2_domain_derived_context.enterprise_rolling_max)
+  $prevalence_days = min($stage2_domain_derived_context.enterprise_day_count)
+  $first_seen = min($stage2_domain_derived_context.first_seen_ts)
+  $obs_ts = max($stage1_query_baseline.event_timestamp)
+  $raw_age_days = ($obs_ts - $first_seen) / 86400.0
+  $domain_age_days = if($first_seen > 0, $raw_age_days, 9999.0)
+
+  // Guarded novelty boost: 2.5x when valid first_seen_time <= 7d before event; 1.5x for rare <= 3 hosts
+  $is_novel_domain = if($first_seen > 0 and $domain_age_days <= 7.0 and $domain_age_days >= 0.0, 1.0, 0.0)
+  $rarity_multiplier = if($is_novel_domain = 1.0, 2.5, 1.5)
+  $threat_score = $z_score * $rarity_multiplier
 
 condition:
-  $fused_threat_score >= 3.0
+  $active_baseline_days >= 7
+  and $z_score >= 3.0
+  and $fleet_prevalence <= 3
 
 order:
-  $fused_threat_score desc
+  $threat_score desc
 ```
 
-#### Query 4B: 4-Stage UDM-Gated Personal & Upstream Delta-Z on Host Network Connections (`secops-statistical-hunter`)
-Evaluates hourly outbound network connection surges against each host's hourly baseline strictly on candidate hosts surfaced by `Query 4A` via UDM Loopback (`re.regex(security_result.rule_name, `:q[0-9]+_query_4a`)`).
+#### Query 4B: 4-Stage UDM-Gated Leave-One-Out Hourly Network Connection Burst Z (`secops-statistical-hunter`)
+Evaluates acute intraday outbound `NETWORK_CONNECTION` rate bursts on candidate hosts surfaced by `Query 4A` via UDM Loopback (`re.regex(security_result.rule_name, `:q[0-9]+_query_4a`)`). Scores each hourly bucket out-of-sample against the host's Leave-One-Out mean $\mu_{-t}$ and sample standard deviation $s_{-t}$ floored at $\sqrt{\max(\mu_{-t}, 1.0)}$ (`BURST_Z_SCREEN`, `$burst_z >= 3.0` across $\ge 6$ prior active hourly samples and $\ge 25$ connections). True recursive lag EWMA smoothing can be run post-query via `EWMA_BURST_VELOCITY` (`micro_python_helpers.py ewma`).
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// ARCHITECTURE: 4-STAGE UDM-GATED PERSONAL & UPSTREAM DELTA-Z PIPELINE
-// Goal: Detect localized hourly outbound connection surges on candidate hosts from Query 4A (strictly gated by Query 4A UDM Loopback candidates).
-// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Hourly Standardized Personal Z-Score Fusion
+// ARCHITECTURE: 4-STAGE UDM-GATED LEAVE-ONE-OUT HOURLY NETWORK BURST Z PIPELINE
+// Goal: Detect acute hourly outbound network connection bursts (burst_z >= 3.0) on candidate hosts from Query 4A using Leave-One-Out out-of-sample standardization.
+// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Leave-One-Out Intraday Burst Z (BURST_Z_SCREEN, burst_z >= 3.0)
+// Skill: secops-statistical-hunter
 // ============================================================================
 
 stage stage1_upstream_4a_candidates {
@@ -725,7 +800,7 @@ stage stage1_upstream_4a_candidates {
     $upstream_4a_z = max(security_result.confidence_score)
 }
 
-stage hourly_counts {
+stage entity_baseline {
     metadata.event_type = "NETWORK_CONNECTION"
     network.sent_bytes > 0
     $host = strings.coalesce(principal.asset.hostname, principal.hostname, principal.user.userid, principal.ip[0])
@@ -735,70 +810,75 @@ stage hourly_counts {
     $host by 1h
 
   outcome:
-    $hourly_val = count(metadata.id)
-    $distinct_procs = count_distinct(target.ip)
+    $window_events = count(metadata.id)
+    $window_events_sq = 1.0 * count(metadata.id) * count(metadata.id)
+    $distinct_targets = count_distinct(target.ip)
 }
 
-stage personal_baseline {
-    $host = $hourly_counts.host
+stage entity_historical_stats {
+    $host = $entity_baseline.host
 
   match:
     $host
 
   outcome:
-    $p_mean = avg($hourly_counts.hourly_val)
-    $p_std = stddev($hourly_counts.hourly_val)
-    $active_hours = count($hourly_counts.window_start)
+    $sum_x = sum($entity_baseline.window_events)
+    $sum_x2 = sum($entity_baseline.window_events_sq)
+    $active_windows = count($entity_baseline.window_start)
 }
 
 $host = $stage1_upstream_4a_candidates.host
-$host = $hourly_counts.host
-$host = $personal_baseline.host
-$ws = $hourly_counts.window_start
+$host = $entity_baseline.host
+$host = $entity_historical_stats.host
+$ws = $entity_baseline.window_start
 
 match:
   $host, $ws by 1h
 
 outcome:
   $upstream_z = max($stage1_upstream_4a_candidates.upstream_4a_z)
-  $observation_count = max($hourly_counts.hourly_val)
-  $baseline_active_samples = max($personal_baseline.active_hours)
-  $baseline_mean = max($personal_baseline.p_mean)
-  $baseline_dispersion = max($personal_baseline.p_std)
-  $fleet_prevalence = 1
-  $distinct_binaries = max($hourly_counts.distinct_procs)
-
-  $safe_p_std = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)
-  $z_personal = ($observation_count - $baseline_mean) / $safe_p_std
-  $delta_z = $z_personal + ($upstream_z * 0.25)
-  $z_score = $delta_z
+  $observation_count = max($entity_baseline.window_events)
+  $baseline_active_samples = max($entity_historical_stats.active_windows) - 1
+  $safe_n_prior = if($baseline_active_samples > 1, $baseline_active_samples, 1)
+  $loo_sum = max($entity_historical_stats.sum_x) - $observation_count
+  $baseline_mean = 1.0 * $loo_sum / $safe_n_prior
+  $df = $baseline_active_samples - 1
+  $safe_df = if($df > 1, $df, 1)
+  $raw_ss = (max($entity_historical_stats.sum_x2) - (1.0 * $observation_count * $observation_count)) - ((1.0 * $loo_sum * $loo_sum) / $safe_n_prior)
+  $pos_ss = if($raw_ss > 0.0, $raw_ss, 0.0)
+  $loo_sd = math.sqrt($pos_ss / $safe_df)
+  $floor_arg = if($baseline_mean > 1.0, $baseline_mean, 1.0)
+  $poisson_floor = math.sqrt($floor_arg)
+  $baseline_dispersion = if($loo_sd > $poisson_floor, $loo_sd, $poisson_floor)
+  $burst_z = ($observation_count - $baseline_mean) / $baseline_dispersion
+  $velocity_score = $burst_z
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = max($entity_baseline.distinct_targets)
 
 condition:
-  $baseline_active_samples >= 2
-  and $observation_count >= 5
-  and $delta_z >= 3.5
+  $baseline_active_samples >= 6
+  and $observation_count >= 25
+  and $burst_z >= 3.0
 
 order:
-  $delta_z desc
+  $burst_z desc
 ```
-
----
 
 ---
 
 ### Scenario 5: Capstone Multi-Scenario Entity Convergence via UDM Loopback
 
 * **Curated Detection Operational Focus**: Point-in-time indicator matches evaluated per event.
-* **How Multi-Stage UEBA Extends Coverage**: Correlates entities matching $\ge 2$ distinct behavioral prioritization queries within the current run (`Option 3` UDM Loopback `PLAYBOOK_BEHAVIORAL_HUNT_MATCH`) via an $L_2$ Euclidean risk norm ($\sum Z_i^2 \ge 25.0$).
+* **How Multi-Stage UEBA Extends Coverage**: Correlates entities matching $\ge 2$ distinct behavioral prioritization queries within the current run (`Option 3` UDM Loopback `PLAYBOOK_BEHAVIORAL_HUNT_MATCH`) via an $L_2$ Euclidean squared risk norm ($\sum Z_i^2 \ge 25.0$).
 
 ### Scenario 5: Unified 3-Stage Capstone Multi-Scenario Convergence & Raw Telemetry Forensic Bridge (`Option 3` Cross-Query Connective Tissue)
 
-Individual behavioral queries in Scenarios 1–4 frequently fire inside ambiguous overlap regimes when evaluated in isolation. Furthermore, 30-day `metrics.*` stages aggregate away raw forensic artifacts such as full process paths or specific cloud/web resource names.
+Individual behavioral queries in Scenarios 1–4 can fire inside ambiguous regimes when evaluated in isolation, and 30-day `metrics.*` stages aggregate away raw forensic artifacts such as full process paths or specific resource names.
 
-**Scenario 5 (`Query 5`)** executes in **Wave 3** after all **Wave 1** (upstream `by 1d` and pre-filtered queries) and **Wave 2** (inline UDM-gated `Query XB` Stage B queries) have exported their findings into Chronicle's unified `GENERIC_EVENT` UDM stream (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`):
-1. **Regex Union Token Matching Across All 4 Scenarios (`stage1_per_scenario_dedup`)**: Matches `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` events for the active `$run_id` using a single hierarchical regex union (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-4]`)`) and deduplicates by `$entity, $scenario_tag`.
-2. **Multi-Scenario Euclidean L2 Rollup (`stage2_multi_scenario_rollup`)**: Aggregates across Stage 1 by `$entity`, counting distinct scenario tags (`$distinct_scenarios_matched >= 2`) and summing their squared Z-scores (`$capstone_threat_norm_sq >= 18.0`).
-3. **Raw Telemetry Forensic Pivot (`stage3_raw_forensic_pivot` & Root Join)**: Simultaneously aggregates raw telemetry (`PROCESS_LAUNCH`, `NETWORK_CONNECTION`, `RESOURCE_READ`, `USER_RESOURCE_ACCESS`, `USER_LOGIN`) by `$entity` and joins it with Stage 2 in Root to deliver both the cross-scenario Euclidean L2 convergence score and concrete raw forensic artifacts in a single query.
+**Scenario 5 (`Query 5`)** executes in **Wave 3** after all **Wave 1** (upstream `by 1d` and fleet-rarity queries) and **Wave 2** (UDM-gated `Query XB` Stage B queries) have exported their findings into Chronicle's unified `GENERIC_EVENT` UDM stream (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`):
+1. **Regex Union Token Matching Across All 4 Scenarios (`stage1_per_scenario_dedup`)**: Matches `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` events for the active `$run_id` using a hierarchical regex union (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-4]`)`) and deduplicates by `$entity, $scenario_tag`.
+2. **Multi-Scenario Euclidean $L_2$ Rollup (`stage2_multi_scenario_rollup`)**: Aggregates across Stage 1 by `$entity`, counting distinct scenario tags (`$distinct_scenarios_matched >= 2`, `LOOPBACK_MIN_DISTINCT_HITS`) and summing their squared Z-scores (`$capstone_threat_norm_sq >= 25.0`, `LOOPBACK_COMPOSITE_SUM_Z_SQ_THRESHOLD`).
+3. **Separated Per-Sector Raw Telemetry Forensic Pivot (`stage3_raw_forensic_pivot` & Root Join)**: Aggregates per-sector conditional event counts (`PROCESS_LAUNCH`, `NETWORK_CONNECTION`, `RESOURCE_READ` / `USER_RESOURCE_ACCESS`, `USER_LOGIN`) and concrete forensic artifacts by `$entity`, joining them with Stage 2 in Root.
 
 #### Query 5: 3-Stage Unified Capstone Multi-Scenario Convergence & Raw Telemetry Forensic Bridge (`secops-statistical-hunter`)
 
@@ -807,8 +887,8 @@ Individual behavioral queries in Scenarios 1–4 frequently fire inside ambiguou
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
-// Goal: Deduplicate and roll up normalized UEBA hunt matches across all 4 Indicator Prioritization scenarios (1 through 4B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
-// Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
+// Goal: Deduplicate and roll up normalized UEBA hunt matches across Scenarios 1 through 4B via UDM Loopback regex token union while joining per-sector raw telemetry for forensic attribution.
+// Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 25.0) + Cross-Plane Raw Telemetry Bridge
 // Skill: secops-statistical-hunter
 // ============================================================================
 
@@ -867,6 +947,10 @@ stage stage3_raw_forensic_pivot {
 
   outcome:
     $raw_event_count = count(metadata.id)
+    $process_events = sum(if(metadata.event_type = "PROCESS_LAUNCH", 1, 0))
+    $network_events = sum(if(metadata.event_type = "NETWORK_CONNECTION", 1, 0))
+    $cloud_events = sum(if(metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS", 1, 0))
+    $auth_events = sum(if(metadata.event_type = "USER_LOGIN", 1, 0))
     $distinct_event_types = count_distinct(metadata.event_type)
     $sample_processes = array_distinct(target.process.file.full_path)
     $sample_resources = array_distinct(target.resource.name)
@@ -890,6 +974,10 @@ outcome:
   $capstone_threat_score = math.sqrt($capstone_threat_norm_sq)
 
   $raw_event_count = max($stage3_raw_forensic_pivot.raw_event_count)
+  $process_events = max($stage3_raw_forensic_pivot.process_events)
+  $network_events = max($stage3_raw_forensic_pivot.network_events)
+  $cloud_events = max($stage3_raw_forensic_pivot.cloud_events)
+  $auth_events = max($stage3_raw_forensic_pivot.auth_events)
   $distinct_event_types = max($stage3_raw_forensic_pivot.distinct_event_types)
   $sample_processes = array_distinct($stage3_raw_forensic_pivot.sample_processes)
   $sample_resources = array_distinct($stage3_raw_forensic_pivot.sample_resources)
@@ -899,22 +987,29 @@ outcome:
 
 condition:
   $distinct_scenarios_matched >= 2
-  and $capstone_threat_norm_sq >= 18.0
+  and $capstone_threat_norm_sq >= 25.0
   and $raw_event_count >= 1
 
 order:
   $unified_threat_score desc
 ```
----
 
 ---
 
-## 4. Non-Parametric Quantile & Skewness-Adjusted Tukey Fence Prioritization for Rare Domains (`v2.2.0` / `v2.9.0`)
+## 4. Non-Parametric Quantile & Skewness-Adjusted Tukey Fence Prioritization for Rare Domains
 
-When prioritizing indicator hits on hosts whose 30-day `metrics.network_bytes_outbound` baseline is distorted by historic backup spikes ($B_{\text{skew}} > 0.25$), `stage quantile_envelope` computes `$q25, $q50, $q75` in 1 stage and joins `DERIVED_CONTEXT` rare domain prevalence (`rolling_max <= 3`, `day_count = 10`) in Stage 3:
+When prioritizing outbound byte transfers from hosts whose parametric baseline is distorted by right-skewed backup or software-distribution spikes ($B_{\text{skew}} > 0$), `stage quantile_envelope` computes a 5-point per-destination daily byte quantile envelope (`$p10, $q25, $q50, $q75, $p90`) and pre-scoring sample statistics (with the `44979.0`-byte `network_bytes_outbound` fleet dispersion floor) in a single stage, leaving stage budget to inner-join 10-day `DERIVED_CONTEXT` rare domain prevalence (`day_count = 10`, `rolling_max <= 3`) in `stage3_rare_domain`. In production, run over a 14-day window `[D-14, D+1)` so at least 7 active days populate `quantile_envelope` while `$in_scoring_window` pins scored `(host, domain)` rows to Mode A day `D` (`"2026-10-29"`), firing when Hubert–Vandervieren (`Bowley 1.35`) robust scale-excess `$tukey_excess_z >= 1.0`.
 
 ```yara
-// Goal: 4-Stage Quantile/Bowley Skewness Egress Fence + DERIVED_CONTEXT Rare Domain Sieve (rolling_max <= 3)
+// ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
+// Goal: Detect skewed daily outbound byte surges to organizationally rare domains (10-day DERIVED_CONTEXT rolling_max <= 3 hosts) exceeding the Hubert-Vandervieren skewness-adjusted Tukey upper fence.
+// Statistical Model: 4-Stage Non-Parametric Quantile Envelope + Hubert-Vandervieren Bowley-1.35 Tukey Scale-Excess (tukey_excess_z >= 1.0) + DERIVED_CONTEXT 10-Day Domain Prevalence
+// ARCHITECTURE: 4-STAGE QUANTILE / BOWLEY SKEWNESS EGRESS FENCE + DERIVED_CONTEXT RARE DOMAIN SIEVE
+// Skill: secops-risk-metrics-multistage
+// ============================================================================
+
 stage stage1_extract {
     network.sent_bytes > 0
     network.sent_bytes < 1000000000000000
@@ -922,19 +1017,17 @@ stage stage1_extract {
     target.hostname = $domain
     $host != ""
     $domain != ""
+    not re.regex(target.hostname, `(?i)\.(in-addr\.arpa|ip6\.arpa|local)$`)
 
   match:
     $host, $domain by 1d
 
   outcome:
-    $observed_val = sum(network.sent_bytes)
-    $in_scoring_window = max(if(timestamp.get_date(metadata.event_timestamp.seconds) >= "2026-10-21", 1, 0))
-    $historical_avg = max(metrics.network_bytes_outbound(
-        period: 1d, window: 30d, metric: value_sum, agg: avg,
-        principal.asset.hostname: principal.asset.hostname
-    ))
-    $historical_stddev = max(metrics.network_bytes_outbound(
-        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+    $observed_val = 1.0 * sum(network.sent_bytes)
+    $observed_val_sq = (1.0 * sum(network.sent_bytes)) * (1.0 * sum(network.sent_bytes))
+    $in_scoring_window = max(if(timestamp.get_date(metadata.event_timestamp.seconds) = "2026-10-29", 1, 0))
+    $historical_active_days = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
         principal.asset.hostname: principal.asset.hostname
     ))
 }
@@ -946,10 +1039,24 @@ stage quantile_envelope {
     $host
 
   outcome:
+    $p10 = window.percentile($stage1_extract.observed_val, 10)
     $q25 = window.percentile($stage1_extract.observed_val, 25)
     $q50 = window.percentile($stage1_extract.observed_val, 50)
     $q75 = window.percentile($stage1_extract.observed_val, 75)
+    $p90 = window.percentile($stage1_extract.observed_val, 90)
     $raw_active_days = count_distinct($stage1_extract.window_start)
+    $pre_n = sum(if($stage1_extract.in_scoring_window = 0, 1, 0))
+    $pre_sum = sum(if($stage1_extract.in_scoring_window = 0, $stage1_extract.observed_val, 0.0))
+    $pre_sum_sq = sum(if($stage1_extract.in_scoring_window = 0, $stage1_extract.observed_val_sq, 0.0))
+    $historical_active_days = max($stage1_extract.historical_active_days)
+    $safe_pre_n = if($pre_n > 0, $pre_n, 1)
+    $pre_avg = 1.0 * $pre_sum / $safe_pre_n
+    $pre_df_raw = $pre_n - 1
+    $safe_pre_df = if($pre_n > 1, $pre_df_raw, 1)
+    $raw_var_num = $pre_sum_sq - (1.0 * $pre_n * $pre_avg * $pre_avg)
+    $pos_var_num = if($raw_var_num > 0.0, $raw_var_num, 0.0)
+    $pre_sd = math.sqrt($pos_var_num / $safe_pre_df)
+    $safe_pre_sd = if($pre_sd > 44979.0, $pre_sd, 44979.0)
 }
 
 stage stage3_rare_domain {
@@ -975,37 +1082,41 @@ $domain = $stage3_rare_domain.domain
 $ws = $stage1_extract.window_start
 
 match:
-  $host, $ws by 1d
+  $host, $domain, $ws by 1d
 
 outcome:
-  $observed = sum($stage1_extract.observed_val)
-  $hist_avg = max($stage1_extract.historical_avg)
-  $hist_stddev = max($stage1_extract.historical_stddev)
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($quantile_envelope.pre_avg)
+  $pre_samples = max($quantile_envelope.pre_n)
   $q25_val = max($quantile_envelope.q25)
   $q50_val = max($quantile_envelope.q50)
   $q75_val = max($quantile_envelope.q75)
   $raw_active_days = max($quantile_envelope.raw_active_days)
   $in_scoring_window = max($stage1_extract.in_scoring_window)
-  $min_domain_prevalence = min($stage3_rare_domain.domain_prevalence)
-  $rare_domains = array_distinct($domain)
+  $domain_prevalence = min($stage3_rare_domain.domain_prevalence)
 
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
-  $personal_z = ($observed - $hist_avg) / $safe_stddev
+  // Pre-scoring sample Z cross-check with 44,979-byte network_bytes_outbound dispersion floor
+  $safe_stddev = max($quantile_envelope.safe_pre_sd)
+  $raw_pre_z = ($observed - $hist_avg) / $safe_stddev
+  $pre_scoring_z = if($pre_samples >= 7, $raw_pre_z, 0.0)
 
+  // Non-Parametric IQR, Bowley Quartile Skewness & Hubert-Vandervieren (1.35) Scale-Excess
   $iqr = $q75_val - $q25_val
   $q50_floor = $q50_val * 0.05 + 1.0
   $safe_iqr = if($iqr > 0, $iqr, $q50_floor)
   $bowley_skew = ($q75_val + $q25_val - (2.0 * $q50_val)) / $safe_iqr
   $pos_skew = if($bowley_skew > 0, $bowley_skew, 0.0)
-  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 3.0 * $pos_skew) * $safe_iqr)
-  $safe_fence = if($adj_upper_fence > 0, $adj_upper_fence, 1.0)
-  $tukey_fence_ratio = $observed / $safe_fence
+  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 1.35 * $pos_skew) * $safe_iqr)
+  $tukey_excess_z = ($observed - $adj_upper_fence) / ($safe_iqr / 1.349)
+  $z_score = $tukey_excess_z
 
 condition:
-  $in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_fence_ratio >= 2.0
+  $in_scoring_window = 1
+  and $raw_active_days >= 7
+  and $tukey_excess_z >= 1.0
 
 order:
-  $tukey_fence_ratio desc
+  $tukey_excess_z desc
 ```
 
 ---

@@ -6,24 +6,27 @@
 
 The **Vendor Alerts** curated rule pack ingests and normalizes detections from integrated endpoint, network, firewall, cloud (CNAPP), email, and OT/IoT security vendors—allowing Google SecOps to surface third-party alerts within Chronicle.
 
-Because third-party vendor appliances frequently generate high volumes of medium- and low-severity alerts without visibility into the surrounding 30-day enterprise behavioral baseline, this playbook enriches vendor alerts with **Multi-Stage Behavioral Analytics** (`secops-risk-metrics-multistage` and `secops-statistical-hunter`). The queries below fuse vendor alert telemetry with 30-day outbound byte baselines, Zipfian alert-signature fleet rarity, Dual-Baseline Fleet Delta-Z, and UDM Loopback Capstone correlation.
+Because third-party vendor appliances frequently generate high volumes of medium- and low-severity alerts without visibility into surrounding 30-day enterprise behavioral baselines, this runbook enriches vendor alerts with **Multi-Stage Behavioral Analytics** (`secops-risk-metrics-multistage` and `secops-statistical-hunter`). Each query pairs third-party alert telemetry with 30-day `metrics.*` baselines, host-prevalence inverse document frequency (IDF) rarity, Entity Context Graph (`DERIVED_CONTEXT`) asset age, Leave-One-Out (LOO) sub-day and daily intensity models, zero-inclusive Poisson dispersion, and UDM Loopback Capstone convergence. Calibrated Risk Index (`CRI` in `[0, 100]`) mapping is computed downstream in Python (`ueba_constants.calculate_cri`) from the Z and Z-equivalent scores emitted by each query.
 
 ### Complementary Detection Layers (3-Wave `A -> UDM -> B` & Capstone Architecture)
 * **Curated Detections (Real-Time Deterministic & Single-Stage Layer)**: Provide immediate, low-latency alerting on high-confidence indicators, explicit attack syntax, and single-stage threshold breaches.
-* **Multi-Stage UEBA & Statistical Hunting Harness (Cyclical 3-Wave Layer)**: Extends coverage beyond the built-in window and observation constraints of single-stage rules through a **3-Wave Execution Pipeline** orchestrated by `PlaybookRunner` in `agentic-ueba`:
-  1. **Wave 1 — Consolidated Single-Shot Queries & Parallel Pairs (`Option 1` Piecewise Cold-Start + 30d Baselines)**: Executes all `by 1d` `metrics.*` baselines, inline Piecewise Cold-Start/Mature unified queries (`active_days <= 4` Hurdle vs. `active_days >= 5` 30-day Z-Score/MAD), and tightly pre-filtered statistical hunter queries concurrently. Every match is ingested into Chronicle UDM as a `GENERIC_EVENT` (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`) stamped with the cycle's unique `run_id` (`metadata.product_log_id`) and hierarchical rule tag (`:q[0-9]+_query_Xa`).
-  2. **Wave 2 — Serial `A -> UDM -> B` Candidate-Gated Queries (`Option 3` Stage B Loopback)**: After `PlaybookRunner` flushes Wave 1 findings and verifies indexing via `verify_udm_run_indexed()`, Wave 2 `Query XB` queries read `Query XA`'s candidate entities in Stage 1 (`re.regex(security_result.rule_name, `:q[0-9]+_query_Xa`)`) to bound sub-day (`by 1h`) raw cadence, dispersion, and shrinkage calculations without risking 1M-row enterprise scan caps.
-  3. **Wave 3 — Unified 3-Stage Capstone Convergence & Raw Telemetry Forensic Bridge (`Query 5`)**: Unions all upstream scenario tags (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-4]`)`), deduplicates per scenario in Stage 1, computes cross-scenario Euclidean L2 convergence (`$distinct_scenarios_matched >= 2` and `$capstone_threat_norm_sq >= 18.0`) in Stage 2, and pivots winning entities directly into raw endpoint, network, and cloud telemetry in Stage 3.
+* **Multi-Stage UEBA & Statistical Hunting Harness (Cyclical 3-Wave Layer)**: Extends coverage beyond single-stage window constraints through a **3-Wave Execution Pipeline** orchestrated by `PlaybookRunner` in `agentic_ueba`:
+  1. **Wave 1 — Upstream 30-Day Macro Baselines & Bounded Raw Micro Hunts (`Queries 1A, 1B, 2A, 3A, 4A, 4B` & `Section 4`)**: Executes `by 1d` 30-day `metrics.*` sector fusions (enforcing the 7-active-day maturity gate, continuous Poisson count floors $\sqrt{\max(\mu, 1)}$, and per-metric fleet byte dispersion floors), `DERIVED_CONTEXT` asset-age joins (Mode A search window `[D-2, D+1)` with event stages pinned to scored UTC day `D`), and bounded raw-event statistical queries concurrently. Matched entities are written to Chronicle UDM as `GENERIC_EVENT` records (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`) stamped with the active cycle's `run_id` (`metadata.product_log_id`) and rule tag (`:q[0-9]+_query_Xa`). Upstream candidate seeding (`/* UPSTREAM_CANDIDATE_IPS */`) is also supported by `PlaybookRunner` when scoping ad-hoc follow-on hunts.
+  2. **Wave 2 — Serial `A -> UDM -> B` Candidate-Gated Queries (`Option 3` Stage B Loopback: `Queries 2B, 3B`)**: After `PlaybookRunner` flushes Wave 1 matches and confirms indexing via `verify_udm_run_indexed()`, Wave 2 `Query XB` queries join `Query XA`'s candidate hosts in Stage 1 (`re.regex(security_result.rule_name, `:q[0-9]+_query_Xa`)`) to evaluate hourly (`by 1h`) vendor alert surges and zero-inclusive Fano dispersion without scanning the entire enterprise raw log stream.
+  3. **Wave 3 — Unified 3-Stage Capstone Convergence & Raw Telemetry Forensic Bridge (`Query 5`)**: Unions all upstream scenario tags (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-4]`)`), deduplicates per `(entity, scenario_tag)` in Stage 1, requires cross-scenario convergence across $\ge 2$ distinct hits (`$distinct_scenarios_matched >= 2`) with squared Euclidean threat norm $\sum Z_i^2 \ge 25.0$ (`$capstone_threat_norm_sq >= 25.0`) in Stage 2, and joins raw endpoint, network, authentication, and cloud events in Stage 3 for immediate forensic attribution.
+
+> [!TIP]
+> **Optional Watchlist Data Table Scoping (`%vendor_alert_watchlist`)**: In Google SecOps YARA-L 2.0, referencing an unpopulated or non-existent Data Table (`%vendor_alert_watchlist.entity_id`) causes an immediate compilation failure. All Data Table scope filters in the queries below are commented out by default so every query compiles out-of-the-box; uncomment them only after creating and populating `%vendor_alert_watchlist` in your `<PROJECT_ID>` / `<CUSTOMER_ID>` tenant.
 
 ### Table 1: Scenario Coverage Matrix — Vendor Alerts & Complementary UEBA Analytics
 
-| Scenario & Threat Domain | Curated Detection Operational Focus | How Multi-Stage UEBA Extends Visibility | UEBA Models & Query IDs |
+| Scenario & Threat Domain | Curated Detection Operational Focus | What the Multi-Stage Queries Compute | UEBA Models & Query IDs |
 | :--- | :--- | :--- | :--- |
-| **1. Endpoint Detection & Response (EDR) Vendor Alerts** | Surfaces alert events generated by endpoint security agents across the fleet. | Fuses 30-day endpoint alert baselines (`metrics.alert_event_name_count`) with 30-day outbound network bytes (`metrics.network_bytes_outbound`) ($D^2 \ge 12.25$) and weights alert signatures by Zipfian inverse host frequency ($I = \ln(N/df) \ge 3.2$). | `Query 1A` (30d Alert + Egress Fusion)<br>`Query 1B` (Zipfian Alert Signature Rarity) |
-| **2. Network Detection (NDR) & Next-Gen Firewall Alerts** | Normalizes IDS/IPS, firewall, and network anomaly alerts from network security appliances. | Fuses 30-day Failed HTTP and Total DNS query baselines ($D^2 \ge 12.25$) and applies 3-stage Dual-Baseline Fleet-Normalized Delta-Z ($\Delta Z \ge 3.0\sigma$) to suppress fleetwide scanner noise. | `Query 2A` (30d HTTP Fail + DNS Fusion)<br>`Query 2B` (Dual-Baseline Fleet Delta-Z) |
-| **3. OT / IoT & Network Asset Discovery Vendor Alerts** | Ingests operational technology (OT), industrial control, and IoT anomaly alerts. | Applies a Two-Part Zero-Inflated Hurdle model for dormant OT/IoT asset communication crossings and detects automated C2/polling anomalies via inter-arrival jitter ($\text{CV} \le 0.20$). | `Query 3A` (Two-Part OT Asset Hurdle)<br>`Query 3B` (Inter-Arrival Jitter CV) |
-| **4. Cloud Security (CNAPP) & Email Security Vendor Alerts** | Surfaces posture/runtime alerts from cloud security platforms and email threat gateways. | Unifies cold-start and 30-day Cloud CRUD baselines (`Option 1`) with Empirical Bayes Gamma-Poisson alert shrinkage across identity and email threat vectors. | `Query 4A` (Piecewise 30d Cloud + Alert Fusion)<br>`Query 4B` (Empirical Bayes Alert Shrinkage) |
-| **5. Capstone Multi-Vendor Entity Convergence** | Single-vendor alerts evaluated within their respective appliance silos. | Correlates hosts and users matching $\ge 2$ distinct vendor-alert behavioral scenarios in the current run (`Option 3` UDM Loopback `PLAYBOOK_BEHAVIORAL_HUNT_MATCH`) via an $L_2$ Euclidean risk norm ($\sum Z_i^2 \ge 25.0$). | `Capstone Query` (UDM Loopback $L_2$ Convergence) |
+| **1. Endpoint Detection & Response (EDR) Vendor Alerts** | Surfaces alert events generated by endpoint security agents across the fleet. | `Query 1A` rolls up 30-day per-rule endpoint alert Z-scores (`metrics.alert_event_name_count`, 7-day maturity gate, $K$-key multiplicity offset $\sqrt{2 \ln K_{\text{eff}}}$) and fuses them with 30-day outbound bytes (`metrics.network_bytes_outbound`, byte floor `44979.0`, $D^2 \ge 12.25$). `Query 1B` scores pure host-prevalence IDF rarity $\ln(N_{\text{fleet}} / N_{\text{adopters}}) \ge 2.5$ for signatures seen on $\le 2$ hosts. | `Query 1A` (Roll-Up Alert + Outbound Bytes Fusion)<br>`Query 1B` (Host-Prevalence Zipfian Alert Rarity) |
+| **2. Network Detection (NDR) & Next-Gen Firewall Alerts** | Normalizes IDS/IPS, firewall, and network anomaly alerts from network security appliances. | `Query 2A` fuses 30-day failed HTTP (`metrics.http_queries_fail`) and total DNS (`metrics.dns_queries_total`) baselines on a shared host-union spine ($D^2 \ge 12.25$, 7-day maturity gate). `Query 2B` gates on `Query 2A` UDM Loopback candidates and computes Leave-One-Out hourly vendor-alert Z-scores ($Z \ge 3.0$). | `Query 2A` (30d HTTP Fail + DNS Union Fusion)<br>`Query 2B` (UDM-Gated Hourly Alert LOO Z-Score) |
+| **3. OT / IoT & Network Asset Discovery Vendor Alerts** | Ingests operational technology (OT), industrial control, and IoT anomaly alerts. | `Query 3A` joins 30-day outbound network bytes (`metrics.network_bytes_outbound`, 7-day maturity gate, byte floor `44979.0`) with `DERIVED_CONTEXT` asset `first_seen_time` ($\le 14\text{ days}$) to weight young/recently onboarded assets ($1.5\times$–$2.5\times$). `Query 3B` gates on `Query 3A` candidates and computes zero-inclusive hourly Fano dispersion ($F = \sigma^2 / \mu \ge 4.0$ over $T = 24$ buckets). | `Query 3A` (30d Outbound Bytes + `DERIVED_CONTEXT` Asset Age)<br>`Query 3B` (UDM-Gated Zero-Inclusive Fano Dispersion) |
+| **4. Cloud Security (CNAPP) & Email Security Vendor Alerts** | Surfaces posture/runtime alerts from cloud security platforms and email threat gateways. | `Query 4A` applies a Two-Part Hurdle model over daily cloud/email vendor alerts per user (dormant awakening volume gate $\ge 10$ alerts vs. Leave-One-Out positive intensity $Z \ge 3.0$). `Query 4B` fuses 30-day authentication failures (`metrics.auth_attempts_fail`) with 30-day outbound Workspace emails (`metrics.workspace_emails_sent_total`, $D^2 \ge 12.25$) per user. | `Query 4A` (Two-Part Cloud & Email Alert Hurdle)<br>`Query 4B` (30d Auth Fail + Workspace Email Fusion) |
+| **5. Capstone Multi-Vendor Entity Convergence** | Single-vendor alerts evaluated within their respective appliance silos. | Deduplicates `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` hits per `(entity, scenario_tag)`, requires $\ge 2$ distinct matched queries and $\sum Z_i^2 \ge 25.0$, and pivots into raw process, network, cloud, and login events with per-domain conditional counts. | `Query 5` (Wave 3 UDM Loopback $L_2$ Convergence & Forensic Bridge) |
 
 ---
 
@@ -32,35 +35,38 @@ Because third-party vendor appliances frequently generate high volumes of medium
 ### Scenario 1: EDR Vendor Alert Pass-Throughs
 
 * **Curated Detection Operational Focus**: Surfaces alert events generated by endpoint security agents across the fleet.
-* **How Multi-Stage UEBA Extends Coverage**: Fuses 30-day endpoint alert baselines (`metrics.alert_event_name_count`) with 30-day outbound network bytes (`metrics.network_bytes_outbound`) ($D^2 \ge 12.25$) and weights alert signatures by Zipfian inverse host frequency ($I = \ln(N/df) \ge 3.2$).
+* **How Multi-Stage UEBA Extends Coverage**: `Query 1A` evaluates 30-day per-rule endpoint alert baselines (`metrics.alert_event_name_count`) with $K$-key multiplicity adjustment alongside 30-day outbound network bytes (`metrics.network_bytes_outbound`) on a shared host-union spine ($D^2 \ge 12.25$), while `Query 1B` ranks rare EDR alert signatures across the active endpoint population via pure host-prevalence inverse document frequency ($\ln(N_{\text{fleet}} / N_{\text{adopters}}) \ge 2.5$).
 
 #### Query 1A: 4-Stage Roll-Up Endpoint Alert + Outbound Network Bytes Fusion (`secops-risk-metrics-multistage`)
-Compensates for static EDR severity passthroughs and unscored alerts by evaluating each host's 30-day per-rule alert baseline (`metrics.alert_event_name_count` keyed on `principal.asset.hostname` + `security_result.rule_name`), rolling up the peak per-rule Z-score per host, and fusing it with 30-day outbound network byte anomalies (`metrics.network_bytes_outbound`) via Euclidean threat distance ($D^2 = Z_{\text{alert}}^2 + Z_{\text{bytes}}^2 \ge 12.25$).
+Evaluates each host's 30-day per-rule alert baseline (`metrics.alert_event_name_count` keyed on `principal.asset.hostname` + `security_result.rule_name` with a 7-active-day maturity gate and continuous count floor $\sqrt{\max(\mu, 1)}$), subtracts the Gaussian expected-maximum offset $\sqrt{2 \ln K_{\text{eff}}}$ across active rules on that host, and fuses the resulting alert score with 30-day outbound network byte anomalies (`metrics.network_bytes_outbound`, fleet byte floor `44979.0`) on a shared host-union spine ($D^2 = Z_a^2 + Z_b^2 \ge 12.25$) so single-sector outliers survive when the companion sector has zero events on the scored UTC day.
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// Goal: Fuse 30-day per-rule endpoint alert anomalies with 30-day outbound network byte surges on the same host to isolate active post-alert exfiltration and C2.
+// Goal: Fuse 30-day per-rule endpoint alert anomalies with 30-day outbound network byte surges on the same host using a shared union spine.
 // Statistical Model: 4-Stage Roll-Up Sector Fusion (metrics.alert_event_name_count + metrics.network_bytes_outbound, D^2 >= 12.25)
 // ARCHITECTURE: 4-STAGE ROLL-UP SECTOR FUSION (COMPOSITE-ONLY METRIC + ENTITY-KEYED METRIC)
 // Skill: secops-risk-metrics-multistage
-// ADVISORY: Sector A (alert_event_name_count) is a composite-only roll-up sector; Z_a is the largest per-rule Z for the host, not a Z of total alert volume.
+// Mode A Execution Window: Last complete UTC day [D T00:00:00Z, D+1 T00:00:00Z); 30d baseline [D-30, D).
+// ADVISORY: Sector A (alert_event_name_count) is a composite-only roll-up sector; Z_a measures the largest per-rule Z on the host after sqrt(2 * ln(K_eff)) multiplicity adjustment, not total alert volume.
+// ADVISORY: Fusion carries no inter-sector covariance matrix; correlated alert and egress bursts can exceed independent chi-square tail rates.
 // ============================================================================
 
-// --- STAGE 1: Sector A detail (UDM Source 1 of 2): one row per host and alert rule_name ---
+// --- STAGE 1: Sector A detail (UDM Source 1 of 2, union spine): one row per host and alert rule_name ---
 stage sector_a_detail {
-    (metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS")
+    (((metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS") and security_result.rule_name != "") or (network.sent_bytes > 0 and network.sent_bytes < 1000000000000000))
     principal.asset.hostname = $entity
     $entity != ""
     security_result.rule_name = $security_result_rule_name
-    $security_result_rule_name != ""
+    // Optional watchlist Data Table filter (uncomment after creating %vendor_alert_watchlist):
+    // $entity in %vendor_alert_watchlist.hostname
 
   match:
     $entity, $security_result_rule_name by 1d
 
   outcome:
-    $d_obs = count(metadata.id)
+    $d_obs = sum(if((metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS") and security_result.rule_name != "", 1, 0))
     $d_avg = max(metrics.alert_event_name_count(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         principal.asset.hostname: principal.asset.hostname,
@@ -76,35 +82,63 @@ stage sector_a_detail {
         principal.asset.hostname: principal.asset.hostname,
         security_result.rule_name: security_result.rule_name
     ))
-    $d_z_raw = ($d_obs - $d_avg) / if($d_std > 0, $d_std, 1.0)
-    $d_z = if($d_days >= 5 and $d_z_raw > 0, $d_z_raw, 0.0)
-    $d_hot = if($d_days >= 5 and $d_z_raw >= 3.0, 1, 0)
-    $d_novel = if($d_days = 0, 1, 0)
 }
 
-// --- STAGE 2: Sector A roll-up (stage-to-stage): one row per host ---
-stage sector_a {
+// --- STAGE 2: Per-rule Z scoring with continuous count floor and 7-day maturity gate ---
+stage sector_a_scored {
     $entity = $sector_a_detail.entity
+    $security_result_rule_name = $sector_a_detail.security_result_rule_name
     $ws = $sector_a_detail.window_start
+
+  match:
+    $entity, $security_result_rule_name, $ws by 1d
+
+  outcome:
+    $d_obs = max($sector_a_detail.d_obs)
+    $d_avg = max($sector_a_detail.d_avg)
+    $d_std = max($sector_a_detail.d_std)
+    $d_days = max($sector_a_detail.d_days)
+    $safe_d_avg = if($d_avg > 1.0, $d_avg, 1.0)
+    $d_floor = math.sqrt($safe_d_avg)
+    $safe_d_std = if($d_std > $d_floor, $d_std, $d_floor)
+    $d_z_raw = ($d_obs - $d_avg) / $safe_d_std
+    $d_z_pos = if($d_z_raw > 0.0, $d_z_raw, 0.0)
+    $d_z = if($d_obs > 0 and $d_days >= 7, $d_z_pos, 0.0)
+    $d_hot = if($d_obs > 0 and $d_days >= 7 and $d_z_raw >= 3.0, 1, 0)
+    $d_novel = if($d_obs > 0 and $d_days = 0, 1, 0)
+    $d_active = if($d_obs > 0, 1, 0)
+}
+
+// --- STAGE 3: Sector A roll-up per host with K-key multiplicity adjustment ---
+stage sector_a {
+    $entity = $sector_a_scored.entity
+    $ws = $sector_a_scored.ws
 
   match:
     $entity, $ws by 1d
 
   outcome:
-    $a_obs = sum($sector_a_detail.d_obs)
-    $a_keys = count_distinct($sector_a_detail.security_result_rule_name)
-    $a_hot_keys = sum($sector_a_detail.d_hot)
-    $a_novel_keys = sum($sector_a_detail.d_novel)
-    $a_days = max($sector_a_detail.d_days)
-    $z_a = max($sector_a_detail.d_z)
+    $a_obs = sum($sector_a_scored.d_obs)
+    $a_keys = count_distinct($sector_a_scored.security_result_rule_name)
+    $a_active_keys = sum($sector_a_scored.d_active)
+    $a_hot_keys = sum($sector_a_scored.d_hot)
+    $a_novel_keys = sum($sector_a_scored.d_novel)
+    $a_days = max($sector_a_scored.d_days)
+    $z_a_max = max($sector_a_scored.d_z)
+    $k_eff = if($a_active_keys > 1, $a_active_keys, 1)
+    $multiplicity_offset = math.sqrt(2.0 * math.log($k_eff))
+    $z_a_adj = $z_a_max - $multiplicity_offset
+    $z_a = if($z_a_adj > 0.0, $z_a_adj, 0.0)
 }
 
-// --- STAGE 3: Sector B — Outbound Network Bytes (UDM Source 2 of 2) ---
+// --- STAGE 4: Sector B — Outbound Network Bytes (UDM Source 2 of 2, union spine) ---
 stage sector_b {
-    network.sent_bytes > 0
+    (((metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS") and security_result.rule_name != "") or (network.sent_bytes > 0 and network.sent_bytes < 1000000000000000))
     network.sent_bytes < 1000000000000000
     principal.asset.hostname = $entity
     $entity != ""
+    // Optional watchlist Data Table filter (uncomment after creating %vendor_alert_watchlist):
+    // $entity in %vendor_alert_watchlist.hostname
 
   match:
     $entity by 1d
@@ -123,15 +157,12 @@ stage sector_b {
         period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
         principal.asset.hostname: principal.asset.hostname
     ))
-    $z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)
-    $z_b_pos = if($z_b_raw > 0, $z_b_raw, 0.0)
-    $z_b = if($b_days >= 5, $z_b_pos, 0.0)
 }
 
-// --- ROOT STAGE: Roll-Up Sector Fusion & Distance Scoring ---
+// --- ROOT STAGE: Roll-Up Sector Fusion & Squared Euclidean Distance ---
 $entity = $sector_a.entity
 $entity = $sector_b.entity
-$ws = $sector_a.window_start
+$ws = $sector_a.ws
 $ws = $sector_b.window_start
 
 match:
@@ -143,11 +174,16 @@ outcome:
   $a_hot_keys = max($sector_a.a_hot_keys)
   $a_novel_keys = max($sector_a.a_novel_keys)
   $b_observed = max($sector_b.b_obs)
+  $b_avg = max($sector_b.b_avg)
+  $b_std = max($sector_b.b_std)
   $b_active_days = max($sector_b.b_days)
 
-  // Rectified, baseline-gated sector scores
+  // Fleet byte dispersion floor (44979.0 bytes) and 7-day maturity gate on Sector B
+  $safe_b_std = if($b_std > 44979.0, $b_std, 44979.0)
+  $z_b_raw = ($b_observed - $b_avg) / $safe_b_std
+  $z_b_pos = if($z_b_raw > 0.0, $z_b_raw, 0.0)
+  $z_b = if($b_observed > 0 and $b_active_days >= 7, $z_b_pos, 0.0)
   $z_a = max($sector_a.z_a)
-  $z_b = max($sector_b.z_b)
 
   // Euclidean Vector Threat Norm D^2 = Z_a^2 + Z_b^2
   $z_a_sq = $z_a * $z_a
@@ -161,45 +197,19 @@ order:
   $composite_threat_norm_sq desc
 ```
 
-#### Query 1B: Zipfian Power-Law Fleet Rarity & Inverse Host Frequency Surprisal on EDR Alert Signatures (`secops-statistical-hunter`)
-Compensates for unscored `trellix-hx` shards (`$risk_score = 0`), `sentinelone` catchall rules, and noisy fleet-wide `LOW`/`MEDIUM` alerts across CrowdStrike, Defender, SentinelOne, Trellix HX, and TrendMicro Vision One by ranking `security_result.rule_name` signatures in the asymptotic fleet tail ($\le 2$ hosts across the enterprise) weighted by local alert repetition intensity (`zipf_rarity_score >= 4.0`).
+#### Query 1B: Host-Prevalence Inverse Document Frequency (Zipfian) Rarity on EDR Alert Signatures (`secops-statistical-hunter`)
+Scores `security_result.rule_name` alert signatures across CrowdStrike, Defender, SentinelOne, Trellix HX, and TrendMicro Vision One by pure host-prevalence inverse document frequency $\ln(N_{\text{fleet\_hosts}} / N_{\text{adopter\_hosts}})$ from a single raw UDM scan. Requiring an active reporting population of $\ge 10$ hosts, $\le 2$ adopter hosts, $\ge 3$ local alerts, and `zipf_rarity_score >= 2.5` isolates rare endpoint detections without mixing raw alert volume into the host-rarity score.
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// Goal: Isolate rare third-party EDR alert signatures firing in the asymptotic fleet tail (<= 2 hosts) with high local repetition intensity across CrowdStrike, Defender, SentinelOne, Trellix HX, and TrendMicro Vision One.
+// Goal: Isolate rare third-party EDR alert signatures firing on <= 2 hosts across an active endpoint fleet using pure host-prevalence inverse document frequency.
 // Target Telemetry: UDM_EVENTS (CS_DETECTS, CS_ALERTS, MICROSOFT_GRAPH_ALERT, SENTINELONE_ALERTS, TRELLIX_HX_ALERTS, TRENDMICRO_VISION_ONE)
-// Statistical Model: Power-Law / Zipfian Inverse Host Frequency Rarity (zipf_rarity_score >= 4.0, adopter_hosts <= 2)
+// Statistical Model: Host-Prevalence Inverse Document Frequency Rarity (ZIPFIAN_PROCESS_RARITY: zipf_rarity_score = ln(N_fleet_hosts / N_adopter_hosts) >= 2.5)
 // ============================================================================
 
-// Stage 1: Enterprise Fleetwide Alert Signature Popularity & Host Breadth
-stage fleet_alert_popularity {
-    (
-      metadata.log_type = "CS_DETECTS"
-      or metadata.log_type = "CS_ALERTS"
-      or metadata.log_type = "MICROSOFT_GRAPH_ALERT"
-      or metadata.log_type = "SENTINELONE_ALERTS"
-      or metadata.log_type = "TRELLIX_HX_ALERTS"
-      or metadata.log_type = "TRENDMICRO_VISION_ONE"
-      or metadata.log_type = "TRENDMICRO_VISION_ONE_WORKBENCH"
-      or metadata.log_type = "TRENDMICRO_VISION_ONE_DETECTIONS"
-      or metadata.vendor_name = "SentinelOne"
-    )
-    principal.asset.hostname = $host
-    $host != ""
-    security_result.rule_name = $rule_sig
-    $rule_sig != ""
-
-  match:
-    $rule_sig by 1d
-
-  outcome:
-    $fleet_hosts = count_distinct($host)
-    $fleet_total_alerts = count(metadata.id)
-}
-
-// Stage 2: Endpoint Local Alert Signature Activity
+// Stage 1: Endpoint Local Alert Signature Activity (single raw UDM scan)
 stage endpoint_alert_burst {
     (
       metadata.log_type = "CS_DETECTS"
@@ -216,6 +226,8 @@ stage endpoint_alert_burst {
     $host != ""
     security_result.rule_name = $rule_sig
     $rule_sig != ""
+    // Optional watchlist Data Table filter (uncomment after creating %vendor_alert_watchlist):
+    // $host in %vendor_alert_watchlist.hostname
 
   match:
     $host, $rule_sig by 1d
@@ -225,46 +237,64 @@ stage endpoint_alert_burst {
     $sample_severities = array_distinct(security_result.severity)
 }
 
-// Root Stage: Zipfian Inverse Rank Departure & Asymptotic Tail Scoring
-$rule_sig = $fleet_alert_popularity.rule_sig
-$rule_sig = $endpoint_alert_burst.rule_sig
+// Stage 2: Enterprise Fleetwide Alert Signature Adopter Breadth per Day
+stage fleet_alert_popularity {
+    $rule_sig = $endpoint_alert_burst.rule_sig
+    $ws = $endpoint_alert_burst.window_start
+
+  match:
+    $rule_sig, $ws by 1d
+
+  outcome:
+    $fleet_hosts = count_distinct($endpoint_alert_burst.host)
+    $fleet_total_alerts = sum($endpoint_alert_burst.endpoint_alerts)
+}
+
+// Stage 3: Total Active EDR-Reporting Host Population per Day
+stage fleet_host_total {
+    $ws = $endpoint_alert_burst.window_start
+
+  match:
+    $ws by 1d
+
+  outcome:
+    $total_fleet_hosts = count_distinct($endpoint_alert_burst.host)
+}
+
+// Root Stage: Host-Prevalence Zipfian Rarity Scoring & 6 Evidence Pillars
 $host = $endpoint_alert_burst.host
+$rule_sig = $endpoint_alert_burst.rule_sig
+$rule_sig = $fleet_alert_popularity.rule_sig
+$ws = $endpoint_alert_burst.window_start
+$ws = $fleet_alert_popularity.ws
+$ws = $fleet_host_total.ws
 
 match:
-  $host, $rule_sig by 1d
+  $host, $rule_sig, $ws by 1d
 
 outcome:
   $adopter_hosts = max($fleet_alert_popularity.fleet_hosts)
-  $fleet_volume = max($fleet_alert_popularity.fleet_total_alerts)
+  $fleet_total_hosts = max($fleet_host_total.total_fleet_hosts)
   $local_volume = max($endpoint_alert_burst.endpoint_alerts)
   $severities = array_distinct($endpoint_alert_burst.sample_severities)
 
-  // 1. Safe Cardinalities
   $safe_hosts = if($adopter_hosts > 0, $adopter_hosts, 1)
-  $safe_volume = if($fleet_volume > 0, $fleet_volume, 1)
-
-  // 2. Zipfian Power-Law Log-Rank Departure & Local Intensity
-  $log_fleet = math.log($safe_volume)
-  $log_adopters = math.log($safe_hosts)
-  $log_local = math.log($local_volume + 1)
-  $zipf_log_rank = ($log_fleet - $log_adopters) + $log_local
-
-  // 3. Inverse Asymptotic Tail Multiplier
-  $tail_rarity = 1.0 / $safe_hosts
-  $zipf_rarity_score = $zipf_log_rank * (1.0 + $tail_rarity)
+  $safe_fleet_hosts = if($fleet_total_hosts > $safe_hosts, $fleet_total_hosts, $safe_hosts)
+  $zipf_rarity_score = math.log(1.0 * $safe_fleet_hosts / $safe_hosts)
 
   // 6 Core Evidence Pillars
   $observation_count = $local_volume
-  $baseline_active_samples = $fleet_volume
-  $baseline_mean = $log_fleet
-  $baseline_dispersion = $zipf_log_rank
+  $baseline_active_samples = $safe_fleet_hosts
+  $baseline_mean = 1.0 * $adopter_hosts / $safe_fleet_hosts
+  $baseline_dispersion = $zipf_rarity_score
   $fleet_prevalence = $adopter_hosts
   $distinct_binaries = 1
 
 condition:
-  $adopter_hosts <= 2
-  and $local_volume >= 3
-  and $zipf_rarity_score >= 4.0
+  $safe_fleet_hosts >= 10
+  and $adopter_hosts <= 2
+  and $observation_count >= 3
+  and $zipf_rarity_score >= 2.5
 
 order:
   $zipf_rarity_score desc
@@ -272,38 +302,39 @@ order:
 
 ---
 
----
-
 ### Scenario 2: NDR & Firewall Vendor Alerts
 
 * **Curated Detection Operational Focus**: Normalizes IDS/IPS, firewall, and network anomaly alerts from network security appliances.
-* **How Multi-Stage UEBA Extends Coverage**: Fuses 30-day Failed HTTP and Total DNS query baselines ($D^2 \ge 12.25$) and applies 3-stage Dual-Baseline Fleet-Normalized Delta-Z ($\Delta Z \ge 3.0\sigma$) to suppress fleetwide scanner noise.
+* **How Multi-Stage UEBA Extends Coverage**: `Query 2A` fuses 30-day failed HTTP (`metrics.http_queries_fail`) and total DNS (`metrics.dns_queries_total`) baselines on a shared host-union spine ($D^2 \ge 12.25$ with 7-active-day maturity gates), and `Query 2B` consumes `Query 2A`'s UDM Loopback candidate hosts in Wave 2 to measure Leave-One-Out hourly vendor alert surges ($Z \ge 3.0$).
 
 #### Query 2A: 3-Stage Dual-Sector Failed HTTP + Total DNS Queries Fusion (`secops-risk-metrics-multistage`)
-Corroborates NDR and firewall alerts by fusing two independent 30-day network behavioral sectors on the same host (`principal.asset.hostname`): HTTP client/server error surges (`metrics.http_queries_fail`, capturing web exploit probing, C2 beacon 404/500 responses, and blocked proxy requests) and total DNS query surges (`metrics.dns_queries_total`, capturing DGA resolution and DNS C2 tunneling) with joint threshold $D^2 \ge 12.25$.
+Corroborates NDR and firewall alerts by fusing two 30-day network behavioral baselines on the same host (`principal.asset.hostname`) over a single-stage union spine: HTTP error surges (`metrics.http_queries_fail`, `response_code >= 400`) and total DNS query volume (`metrics.dns_queries_total`), each gated at $\ge 7$ active baseline days with continuous Poisson count floor $\sqrt{\max(\mu, 1)}$ and upper-tail rectification ($D^2 = Z_a^2 + Z_b^2 \ge 12.25$).
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// Goal: Fuse 30-day failed HTTP request surges with 30-day total DNS query volume anomalies on the same host to corroborate NDR and firewall alerts.
-// Statistical Model: 3-Stage Dual-Sector Threat Fusion (metrics.http_queries_fail + metrics.dns_queries_total, D^2 >= 12.25)
-// ARCHITECTURE: 3-STAGE DUAL-SECTOR THREAT FUSION (GENERIC: ANY TWO ENTITY-KEYED METRICS)
+// Goal: Fuse 30-day failed HTTP request surges with 30-day total DNS query volume anomalies on a single-stage host-union spine to corroborate NDR and firewall alerts.
+// Statistical Model: Dual-Sector Threat Fusion (metrics.http_queries_fail + metrics.dns_queries_total, D^2 >= 12.25)
+// ARCHITECTURE: DUAL-SECTOR THREAT FUSION (SINGLE-STAGE UNION SPINE)
 // Skill: secops-risk-metrics-multistage
+// Mode A Execution Window: Last complete UTC day [D T00:00:00Z, D+1 T00:00:00Z); 30d baseline [D-30, D).
+// ADVISORY: Coupled network planes (http_queries_fail + dns_queries_total) share underlying host network activity without covariance adjustment; joint D^2 tail rates can exceed independent chi-square expectations.
 // ============================================================================
 
-// --- STAGE 1: Sector A — Failed HTTP Queries (UDM Source 1 of 2) ---
-stage sector_a {
-    (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
-    network.http.response_code >= 400
+// --- STAGE 1: Single-Stage Sector Union (UDM Source 1 of 2; preserves single-sector outliers) ---
+stage sector_union {
+    (((network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "") and network.http.response_code >= 400) or (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0))
     principal.asset.hostname = $entity
     $entity != ""
+    // Optional watchlist Data Table filter (uncomment after creating %vendor_alert_watchlist):
+    // $entity in %vendor_alert_watchlist.hostname
 
   match:
     $entity by 1d
 
   outcome:
-    $a_obs = count(metadata.id)
+    $a_obs = sum(if((network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "") and network.http.response_code >= 400, 1, 0))
     $a_avg = max(metrics.http_queries_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         principal.asset.hostname: principal.asset.hostname
@@ -316,21 +347,8 @@ stage sector_a {
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
         principal.asset.hostname: principal.asset.hostname
     ))
-    $z_a_raw = ($a_obs - $a_avg) / if($a_std > 0, $a_std, 1.0)
-    $z_a = if($z_a_raw > 0, $z_a_raw, 0.0)
-}
 
-// --- STAGE 2: Sector B — Total DNS Queries (UDM Source 2 of 2) ---
-stage sector_b {
-    (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
-    principal.asset.hostname = $entity
-    $entity != ""
-
-  match:
-    $entity by 1d
-
-  outcome:
-    $b_obs = count(metadata.id)
+    $b_obs = sum(if(network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0, 1, 0))
     $b_avg = max(metrics.dns_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         principal.asset.hostname: principal.asset.hostname
@@ -343,32 +361,58 @@ stage sector_b {
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
         principal.asset.hostname: principal.asset.hostname
     ))
-    $z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)
-    $z_b = if($z_b_raw > 0, $z_b_raw, 0.0)
 }
 
-// --- ROOT STAGE: Dual-Sector Threat Fusion & Distance Scoring ---
-$entity = $sector_a.entity
-$entity = $sector_b.entity
+// --- STAGE 2: Continuous Count Floors, Upper-Tail Rectification & 7-Day Maturity Gate ---
+stage sector_scored {
+    $entity = $sector_union.entity
+    $ws = $sector_union.window_start
+
+  match:
+    $entity, $ws by 1d
+
+  outcome:
+    $a_obs = max($sector_union.a_obs)
+    $a_avg = max($sector_union.a_avg)
+    $a_std = max($sector_union.a_std)
+    $a_days = max($sector_union.a_days)
+    $safe_a_avg = if($a_avg > 1.0, $a_avg, 1.0)
+    $a_floor = math.sqrt($safe_a_avg)
+    $safe_a_std = if($a_std > $a_floor, $a_std, $a_floor)
+    $z_a_raw = ($a_obs - $a_avg) / $safe_a_std
+    $z_a_pos = if($z_a_raw > 0.0, $z_a_raw, 0.0)
+    $z_a = if($a_obs > 0 and $a_days >= 7, $z_a_pos, 0.0)
+
+    $b_obs = max($sector_union.b_obs)
+    $b_avg = max($sector_union.b_avg)
+    $b_std = max($sector_union.b_std)
+    $b_days = max($sector_union.b_days)
+    $safe_b_avg = if($b_avg > 1.0, $b_avg, 1.0)
+    $b_floor = math.sqrt($safe_b_avg)
+    $safe_b_std = if($b_std > $b_floor, $b_std, $b_floor)
+    $z_b_raw = ($b_obs - $b_avg) / $safe_b_std
+    $z_b_pos = if($z_b_raw > 0.0, $z_b_raw, 0.0)
+    $z_b = if($b_obs > 0 and $b_days >= 7, $z_b_pos, 0.0)
+}
+
+// --- ROOT STAGE: Dual-Sector Threat Fusion & Squared Euclidean Distance ---
+$entity = $sector_scored.entity
+$ws = $sector_scored.ws
 
 match:
-  $entity by 1d
+  $entity, $ws by 1d
 
 outcome:
-  $a_observed = max($sector_a.a_obs)
-  $b_observed = max($sector_b.b_obs)
-  $a_active_days = max($sector_a.a_days)
-  $b_active_days = max($sector_b.b_days)
-  $z_a = max($sector_a.z_a)
-  $z_b = max($sector_b.z_b)
-
-  // Sparse-baseline gate: a sector with fewer active baseline days contributes 0
-  $z_a_gated = if($a_active_days >= 5, $z_a, 0.0)
-  $z_b_gated = if($b_active_days >= 5, $z_b, 0.0)
+  $a_observed = max($sector_scored.a_obs)
+  $b_observed = max($sector_scored.b_obs)
+  $a_active_days = max($sector_scored.a_days)
+  $b_active_days = max($sector_scored.b_days)
+  $z_a = max($sector_scored.z_a)
+  $z_b = max($sector_scored.z_b)
 
   // Euclidean Vector Threat Norm D^2 = Z_a^2 + Z_b^2
-  $z_a_sq = $z_a_gated * $z_a_gated
-  $z_b_sq = $z_b_gated * $z_b_gated
+  $z_a_sq = $z_a * $z_a
+  $z_b_sq = $z_b * $z_b
   $composite_threat_norm_sq = $z_a_sq + $z_b_sq
 
 condition:
@@ -378,16 +422,16 @@ order:
   $composite_threat_norm_sq desc
 ```
 
-#### Query 2B: 4-Stage UDM-Gated Personal & Upstream Delta-Z on NDR & Firewall Alerts (`secops-statistical-hunter`)
-Evaluates hourly NDR and firewall alert surges strictly on candidate hosts surfaced by `Query 2A` via UDM Loopback (`re.regex(security_result.rule_name, `:q[0-9]+_query_2a`)`).
+#### Query 2B: 4-Stage UDM-Gated Hourly NDR & Firewall Alert Leave-One-Out Z-Score (`secops-statistical-hunter`)
+Executes in Wave 2 strictly on candidate hosts surfaced by `Query 2A` (`re.regex(security_result.rule_name, `:q[0-9]+_query_2a`)`), excluding synthetic loopback events from the raw alert stream and scoring hourly vendor-alert spikes against each host's Leave-One-Out (`n - 1`) hourly mean and variance with a continuous $\sqrt{\max(\mu, 1)}$ dispersion floor (`z_score >= 3.0`).
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// ARCHITECTURE: 4-STAGE UDM-GATED PERSONAL & UPSTREAM DELTA-Z PIPELINE
-// Goal: Detect localized NDR and firewall alert surges on candidate hosts from Query 2A (strictly gated by Query 2A UDM Loopback candidates).
-// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Hourly Standardized Personal Z-Score Fusion
+// ARCHITECTURE: 4-STAGE UDM-GATED LEAVE-ONE-OUT HOURLY ALERT Z-SCORE PIPELINE
+// Goal: Detect hourly NDR and firewall vendor alert surges strictly on candidate hosts surfaced by Query 2A via Stage 1 UDM Loopback.
+// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Leave-One-Out Hourly Standardized Z-Score (STANDARD_Z_SCORE, z_score >= 3.0)
 // ============================================================================
 
 stage stage1_upstream_2a_candidates {
@@ -410,6 +454,7 @@ stage stage1_upstream_2a_candidates {
 
 stage hourly_counts {
     security_result.rule_name != ""
+    metadata.product_event_type != "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"
     $host = strings.coalesce(principal.asset.hostname, principal.hostname, principal.user.userid, principal.ip[0])
     $host != ""
 
@@ -418,7 +463,8 @@ stage hourly_counts {
 
   outcome:
     $hourly_val = count(metadata.id)
-    $distinct_procs = count_distinct(security_result.rule_name)
+    $hourly_val_sq = 1.0 * count(metadata.id) * count(metadata.id)
+    $distinct_rules = count_distinct(security_result.rule_name)
 }
 
 stage personal_baseline {
@@ -428,8 +474,8 @@ stage personal_baseline {
     $host
 
   outcome:
-    $p_mean = avg($hourly_counts.hourly_val)
-    $p_std = stddev($hourly_counts.hourly_val)
+    $sum_x = sum($hourly_counts.hourly_val)
+    $sum_x2 = sum($hourly_counts.hourly_val_sq)
     $active_hours = count($hourly_counts.window_start)
 }
 
@@ -442,63 +488,71 @@ match:
   $host, $ws by 1h
 
 outcome:
-  $upstream_z = max($stage1_upstream_2a_candidates.upstream_2a_z)
+  $upstream_2a_score = max($stage1_upstream_2a_candidates.upstream_2a_z)
   $observation_count = max($hourly_counts.hourly_val)
   $baseline_active_samples = max($personal_baseline.active_hours)
-  $baseline_mean = max($personal_baseline.p_mean)
-  $baseline_dispersion = max($personal_baseline.p_std)
-  $fleet_prevalence = 1
-  $distinct_binaries = max($hourly_counts.distinct_procs)
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = max($hourly_counts.distinct_rules)
 
-  $safe_p_std = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)
-  $z_personal = ($observation_count - $baseline_mean) / $safe_p_std
-  $delta_z = $z_personal + ($upstream_z * 0.25)
-  $z_score = $delta_z
+  // Leave-One-Out (n - 1) Personal Moments & Continuous Poisson Floor
+  $raw_n_prior = $baseline_active_samples - 1
+  $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)
+  $raw_loo_sum = max($personal_baseline.sum_x) - $observation_count
+  $loo_sum = if($raw_loo_sum > 0, $raw_loo_sum, 0)
+  $baseline_mean = 1.0 * $loo_sum / $n_prior
+  $raw_loo_var = ((max($personal_baseline.sum_x2) - (1.0 * $observation_count * $observation_count)) / $n_prior) - ($baseline_mean * $baseline_mean)
+  $floor_var = if($baseline_mean > 1.0, $baseline_mean, 1.0)
+  $safe_var = if($raw_loo_var > $floor_var, $raw_loo_var, $floor_var)
+  $baseline_dispersion = math.sqrt($safe_var)
+  $raw_z = ($observation_count - $baseline_mean) / $baseline_dispersion
+  $z_score = if($raw_z > 0.0, $raw_z, 0.0)
 
 condition:
-  $baseline_active_samples >= 2
+  $baseline_active_samples >= 4
   and $observation_count >= 5
-  and $delta_z >= 3.5
+  and $z_score >= 3.0
 
 order:
-  $delta_z desc
+  $z_score desc
 ```
-
----
 
 ---
 
 ### Scenario 3: OT / IoT & Network Asset Discovery Vendor Alerts
 
 * **Curated Detection Operational Focus**: Ingests operational technology (OT), industrial control, and IoT anomaly alerts.
-* **How Multi-Stage UEBA Extends Coverage**: Applies a Two-Part Zero-Inflated Hurdle model for dormant OT/IoT asset communication crossings and detects automated C2/polling anomalies via inter-arrival jitter ($\text{CV} \le 0.20$).
+* **How Multi-Stage UEBA Extends Coverage**: `Query 3A` joins 30-day host outbound network byte baselines (`metrics.network_bytes_outbound`) with `DERIVED_CONTEXT` asset `first_seen_time` to amplify outbound byte surges on recently onboarded assets ($\le 14\text{ days}$ old with $\ge 7$ active baseline days), and `Query 3B` evaluates zero-inclusive hourly Fano burstiness ($F = \sigma^2 / \mu \ge 4.0$ over $T = 24$ hourly buckets) on `Query 3A` candidates in Wave 2.
 
-#### Query 3A: 2-Stage Hybrid 30-Day Outbound Network Bytes + `DERIVED_CONTEXT` Infant Asset Age (`secops-risk-metrics-multistage`)
-Fuses 30-day host outbound network byte baselines (`metrics.network_bytes_outbound`) with the Chronicle **Entity Context Graph (`DERIVED_CONTEXT`)** asset `first_seen_time` to isolate newly discovered or rogue "infant" assets ($\le 7\text{ days}$ old) exhibiting immediate outbound volumetric anomalies, applying a $2.5\times$ threat score multiplier.
+#### Query 3A: 2-Stage Hybrid 30-Day Outbound Network Bytes + `DERIVED_CONTEXT` Young Asset Age (`secops-risk-metrics-multistage`)
+Joins 30-day host outbound network byte baselines (`metrics.network_bytes_outbound`, fleet byte dispersion floor `44979.0`, `$active_days >= 7`) with Chronicle **Entity Context Graph (`DERIVED_CONTEXT`)** `ASSET` `first_seen_time` (`asset_age_days <= 14.0`), applying a $1.5\times$ multiplier for young assets ($\le 14\text{d}$) and $2.5\times$ for assets $\le 7\text{d}$ (`WS1-08` disables the multiplier when `first_seen_time = 0`). Because Stage 2 is an inner join, assets absent from `DERIVED_CONTEXT` drop out; true Day-0 assets with $< 7$ active baseline days should be routed to `FIRST_SEEN_NOVELTY` (`metrics.*` `first_seen = 0`). In Mode A, execute over `[D-2 T00:00:00Z, D+1 T00:00:00Z)` so daily Entity Graph snapshots overlap the search window while Stage 1 stays pinned to scored UTC day `D`.
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// Goal: Isolate newly discovered or rogue infant assets (first seen <= 7 days ago in DERIVED_CONTEXT) exhibiting anomalous outbound network byte volume.
-// Statistical Model: 2-Stage Hybrid 30-Day Outbound Bytes Z-Score + DERIVED_CONTEXT Infant Asset Age (z_score >= 3.0, asset_age_days <= 7.0)
+// Goal: Isolate recently onboarded OT/IoT and network assets (first seen <= 14 days ago in DERIVED_CONTEXT with >= 7 active baseline days) exhibiting anomalous outbound network byte volume.
+// Statistical Model: 2-Stage Hybrid 30-Day Outbound Bytes Z-Score + DERIVED_CONTEXT Asset Age (z_score >= 3.0, active_days >= 7, asset_age_days <= 14.0)
 // ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT ASSET AGE PIPELINE
 // Skill: secops-risk-metrics-multistage
+// Mode A ECG Window: Run over [D-2 T00:00:00Z, D+1 T00:00:00Z) and pin Stage 1 to scored UTC day D ("YYYY-MM-DD").
+// FILTER NOTE: Stage 2 is an inner join on DERIVED_CONTEXT; assets without a graph record drop out.
 // ============================================================================
 
-// Stage 1: Macro 30-Day Host Outbound Network Byte Baseline (metrics.network_bytes_outbound)
+// Stage 1: Macro 30-Day Host Outbound Network Byte Baseline (pinned to Mode A day D)
 stage stage1_asset_baseline {
     network.sent_bytes > 0
     network.sent_bytes < 1000000000000000
+    timestamp.get_date(metadata.event_timestamp.seconds) = "2026-10-29"
     principal.asset.hostname = $host
     $host != ""
+    // Optional watchlist Data Table filter (uncomment after creating %vendor_alert_watchlist):
+    // $host in %vendor_alert_watchlist.hostname
 
   match:
     $host by 1d
 
   outcome:
     $observed_val = sum(network.sent_bytes)
-
     $hist_mean = max(metrics.network_bytes_outbound(
         period: 1d, window: 30d, metric: value_sum, agg: avg,
         principal.asset.hostname: principal.asset.hostname
@@ -528,7 +582,7 @@ stage stage2_asset_derived_context {
     $first_seen_ts = min($asset.graph.entity.asset.first_seen_time.seconds)
 }
 
-// Stage 3 (Root Stage): Fuses Host Anomaly Z-Score with Infant Asset Age Coloring
+// Root Stage: Fuses Mature Host Outbound Byte Z-Score with Young Asset Age Multiplier
 $host = $stage1_asset_baseline.host
 $host = $stage2_asset_derived_context.host
 
@@ -539,37 +593,43 @@ outcome:
   $observed = max($stage1_asset_baseline.observed_val)
   $mean = max($stage1_asset_baseline.hist_mean)
   $stddev = max($stage1_asset_baseline.hist_stddev)
-  $z_score = ($observed - $mean) / if($stddev > 0, $stddev, 1.0)
-  $active_baseline_days = max($stage1_asset_baseline.hist_active_days)
+  $safe_std = if($stddev > 44979.0, $stddev, 44979.0)
+  $z_score = ($observed - $mean) / $safe_std
+  $active_days = max($stage1_asset_baseline.hist_active_days)
+  $active_baseline_days = $active_days
 
   $first_seen = min($stage2_asset_derived_context.first_seen_ts)
   $obs_ts = max($stage1_asset_baseline.event_timestamp)
   $raw_age_days = ($obs_ts - $first_seen) / 86400.0
   $asset_age_days = if($first_seen > 0, $raw_age_days, 9999.0)
 
-  // Infant Asset Multiplier: 2.5x threat score boost for machines first seen <= 7 days ago
+  // WS1-08: Guard epoch-zero first_seen_time; boost <= 7d (2.5x) and <= 14d (1.5x) young assets
+  $ecg_novelty_disabled = if($first_seen <= 0, 1.0, 0.0)
   $is_infant_asset = if($first_seen > 0 and $asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)
-  $threat_multiplier = if($is_infant_asset = 1.0, 2.5, 1.0)
+  $is_young_asset = if($first_seen > 0 and $asset_age_days <= 14.0 and $asset_age_days >= 0.0, 1.0, 0.0)
+  $young_mult = if($is_young_asset = 1.0, 1.5, 1.0)
+  $threat_multiplier = if($is_infant_asset = 1.0, 2.5, $young_mult)
   $threat_score = $z_score * $threat_multiplier
 
 condition:
-  $z_score >= 3.0
-  and $asset_age_days <= 7.0
+  $active_days >= 7
+  and $z_score >= 3.0
+  and $asset_age_days <= 14.0
 
 order:
   $threat_score desc
 ```
 
-#### Query 3B: 4-Stage UDM-Gated Poisson Fano Factor Burst Clustering on OT & IoT Vendor Alerts (`secops-statistical-hunter`)
-Evaluates hourly OT/IoT vendor alert burstiness ($F = \sigma^2 / \mu \ge 4.0$) strictly on candidate assets surfaced by `Query 3A` via UDM Loopback (`re.regex(security_result.rule_name, `:q[0-9]+_query_3a`)`).
+#### Query 3B: 4-Stage UDM-Gated Zero-Inclusive Poisson Fano Factor Burst Clustering on OT & IoT Vendor Alerts (`secops-statistical-hunter`)
+Evaluates hourly OT/IoT and network vendor alert burstiness ($F = \sigma^2 / \mu \ge 4.0$) over $T = 24$ hourly buckets strictly on candidate assets surfaced by `Query 3A` via UDM Loopback (`re.regex(security_result.rule_name, `:q[0-9]+_query_3a`)`). Computing zero-inclusive moments ($\mu = \sum x / 24$, $\sigma^2 = \sum x^2 / 24 - \mu^2$) preserves silent hours so single-hour reconnaissance floods are not masked by active-only sample variance.
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// ARCHITECTURE: 4-STAGE UDM-GATED POISSON FANO FACTOR BURST DISPERSION PIPELINE
-// Goal: Detect concentrated OT/IoT reconnaissance and PLC/asset alert bursts on candidate assets from Query 3A (strictly gated by Query 3A UDM Loopback candidates).
-// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Poisson Index of Dispersion (Fano Factor F = sigma^2 / mu >= 4.0)
+// ARCHITECTURE: 4-STAGE UDM-GATED ZERO-INCLUSIVE POISSON FANO DISPERSION PIPELINE
+// Goal: Detect concentrated OT/IoT reconnaissance and asset alert bursts strictly on candidate assets surfaced by Query 3A via Stage 1 UDM Loopback.
+// Statistical Model: UDM Loopback Stage 1 Candidate Gate + Zero-Inclusive Poisson Fano Factor (POISSON_BURST_CLUSTERING: F = sigma^2 / mu >= 4.0 over T = 24 hourly buckets)
 // ============================================================================
 
 stage stage1_upstream_3a_candidates {
@@ -587,11 +647,12 @@ stage stage1_upstream_3a_candidates {
     $host
 
   outcome:
-    $upstream_3a_z = max(security_result.confidence_score)
+    $upstream_3a_score = max(security_result.confidence_score)
 }
 
 stage hourly_bursts {
     security_result.rule_name != ""
+    metadata.product_event_type != "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"
     $host = strings.coalesce(principal.asset.hostname, principal.hostname, principal.user.userid, principal.ip[0])
     $host != ""
 
@@ -599,10 +660,13 @@ stage hourly_bursts {
     $host by 1h
 
   outcome:
-    $event_count = count(metadata.id)
-    $distinct_targets = count_distinct(security_result.rule_name)
+    $hourly_events = count(metadata.id)
+    $hourly_events_sq = 1.0 * count(metadata.id) * count(metadata.id)
+    $distinct_rules = count_distinct(security_result.rule_name)
+    $sample_rules = array_distinct(security_result.rule_name)
 }
 
+// Purely numeric moment accumulation per candidate asset (never mix array_distinct here)
 stage host_dispersion {
     $host = $hourly_bursts.host
 
@@ -610,38 +674,47 @@ stage host_dispersion {
     $host
 
   outcome:
-    $mean_hourly = avg($hourly_bursts.event_count)
-    $stddev_hourly = stddev($hourly_bursts.event_count)
-    $peak_hourly = max($hourly_bursts.event_count)
-    $total_events = sum($hourly_bursts.event_count)
+    $sum_x = sum($hourly_bursts.hourly_events)
+    $sum_x2 = sum($hourly_bursts.hourly_events_sq)
     $active_hours = count($hourly_bursts.window_start)
-    $max_distinct_targets = max($hourly_bursts.distinct_targets)
+    $peak_hourly = max($hourly_bursts.hourly_events)
+    $max_distinct_rules = max($hourly_bursts.distinct_rules)
 }
 
 $host = $stage1_upstream_3a_candidates.host
+$host = $hourly_bursts.host
 $host = $host_dispersion.host
 
 match:
   $host
 
 outcome:
-  $upstream_z = max($stage1_upstream_3a_candidates.upstream_3a_z)
-  $observation_count = max($host_dispersion.total_events)
-  $baseline_active_samples = max($host_dispersion.active_hours)
-  $baseline_mean = max($host_dispersion.mean_hourly)
-  $baseline_dispersion = max($host_dispersion.stddev_hourly)
-  $fleet_prevalence = 1
-  $distinct_binaries = max($host_dispersion.max_distinct_targets)
+  $upstream_3a_score = max($stage1_upstream_3a_candidates.upstream_3a_score)
+  $sum_x = max($host_dispersion.sum_x)
+  $sum_x2 = max($host_dispersion.sum_x2)
+  $zero_incl_mean = 1.0 * $sum_x / 24.0
+  $mean_sq = 1.0 * $sum_x2 / 24.0
+  $raw_var = $mean_sq - ($zero_incl_mean * $zero_incl_mean)
+  $zero_incl_var = if($raw_var > 0.0, $raw_var, 0.0)
+  $zero_incl_sd = math.sqrt($zero_incl_var)
+  $safe_mean = if($zero_incl_mean > 0.0, $zero_incl_mean, 1.0)
+  $raw_fano = $zero_incl_var / $safe_mean
+  $fano_factor = if($zero_incl_mean > 0.0, $raw_fano, 0.0)
   $peak_burst = max($host_dispersion.peak_hourly)
 
-  $variance = $baseline_dispersion * $baseline_dispersion
-  $safe_mean = if($baseline_mean > 0, $baseline_mean, 1.0)
-  $fano_factor = $variance / $safe_mean
-  $z_score = $fano_factor
+  // 6 Core Evidence Pillars
+  $observation_count = $sum_x
+  $baseline_active_samples = max($host_dispersion.active_hours)
+  $baseline_mean = $zero_incl_mean
+  $baseline_dispersion = $zero_incl_sd
+  $fleet_prevalence = 0 - 1
+  $distinct_binaries = max($host_dispersion.max_distinct_rules)
+  $sample_commands = array_distinct($hourly_bursts.sample_rules)
 
 condition:
-  $baseline_active_samples >= 2
-  and $peak_burst >= 5
+  $baseline_active_samples >= 1
+  and $observation_count >= 6
+  and $baseline_mean >= 0.25
   and $fano_factor >= 4.0
 
 order:
@@ -650,26 +723,24 @@ order:
 
 ---
 
----
-
 ### Scenario 4: Cloud Security (CNAPP) & Email Security Vendor Alerts
 
 * **Curated Detection Operational Focus**: Surfaces posture/runtime alerts from cloud security platforms and email threat gateways.
-* **How Multi-Stage UEBA Extends Coverage**: Unifies cold-start and 30-day Cloud CRUD baselines (`Option 1`) with Empirical Bayes Gamma-Poisson alert shrinkage across identity and email threat vectors.
+* **How Multi-Stage UEBA Extends Coverage**: `Query 4A` evaluates daily Wiz and Trellix email/XDR vendor alerts per user via a single-scan Two-Part Hurdle model (gating dormant awakenings at $\ge 10$ alerts while scoring active accounts via Leave-One-Out positive intensity $Z \ge 3.0$), and `Query 4B` fuses orthogonal 30-day authentication failure (`metrics.auth_attempts_fail`) and outbound Google Workspace email (`metrics.workspace_emails_sent_total`) baselines per user ($D^2 \ge 12.25$).
 
-#### Query 4A: Two-Part Zero-Inflated Hurdle Model on Cloud & Email Vendor Alerts per User (`secops-statistical-hunter`)
-Compensates for `wiz-threats` `$threat_id` collapsing, `trellix-helix` unaggregated floods, and `trellix-etp`/`trellix-ex` sender grouping by evaluating daily cloud and email vendor alert volume per user (`principal.user.userid`) via a **Two-Part Zero-Inflated Hurdle Model**. Accounts that are historically quiet/dormant ($\le 2$ active alert days in the lookback window) incur a discrete Bernoulli hurdle penalty when they suddenly accumulate multi-vendor alerts, while frequently alerting accounts are scored by their continuous intensity Z-score (`hurdle_threat_score >= 3.0`).
+#### Query 4A: Two-Part Hurdle Model on Cloud & Email Vendor Alerts per User (`secops-statistical-hunter`)
+Evaluates daily cloud and email vendor alert volume (`WIZ_IO`, `FIREEYE_ETP`, `FIREEYE_EMPS`, `Trellix XDR`) per user (`principal.user.userid`) from a single raw UDM stage. Accounts with $\le 3$ active alert days in the lookback window must cross an explicit awakening volume gate ($\ge 10$ alerts, scoring $3.0 \times \text{obs} / 10.0$), while accounts with $\ge 4$ active days are scored via Leave-One-Out positive-rectified intensity Z with a continuous $\sqrt{\max(\mu, 1)}$ dispersion floor (`hurdle_threat_score >= 3.0`).
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// Goal: Detect dormant or low-noise cloud and corporate accounts that suddenly accumulate Wiz, Trellix ETP/EX, or Trellix Helix security alerts.
+// Goal: Detect dormant cloud/corporate accounts suddenly accumulating >= 10 Wiz or Trellix email/XDR alerts or active accounts surging >= 3.0 sigma above their Leave-One-Out daily baseline.
 // Target Telemetry: UDM_EVENTS (WIZ_IO, FIREEYE_ETP, FIREEYE_EMPS, Trellix XDR)
-// Statistical Model: Two-Part Hurdle Outlier Model for Zero-Inflated Telemetry (hurdle_threat_score >= 3.0)
+// Statistical Model: Two-Part Hurdle Outlier Model (TWO_PART_HURDLE: Dormant Awakening Volume Gate >= 10 & Positive-Rectified LOO Intensity Z >= 3.0)
 // ============================================================================
 
-// Stage 1: Historical daily cloud/email vendor alert extraction per user
+// Stage 1: Windowed daily cloud/email vendor alert extraction per user (single raw stage)
 stage entity_historical {
     (
       metadata.log_type = "WIZ_IO"
@@ -679,16 +750,20 @@ stage entity_historical {
     )
     principal.user.userid = $entity
     $entity != ""
+    // Optional watchlist Data Table filter (uncomment after creating %vendor_alert_watchlist):
+    // $entity in %vendor_alert_watchlist.userid
 
   match:
     $entity by 1d
 
   outcome:
     $bucket_count = count(metadata.id)
+    $bucket_count_sq = 1.0 * count(metadata.id) * count(metadata.id)
     $distinct_rules = count_distinct(security_result.rule_name)
+    $sample_products = array_distinct(metadata.product_name)
 }
 
-// Stage 2: Historical active sample density and dispersion per user
+// Stage 2: Historical moment accumulation across active days
 stage entity_stats {
     $entity = $entity_historical.entity
 
@@ -696,96 +771,79 @@ stage entity_stats {
     $entity
 
   outcome:
-    $hist_mean = avg($entity_historical.bucket_count)
-    $hist_stddev = stddev($entity_historical.bucket_count)
+    $sum_x = sum($entity_historical.bucket_count)
+    $sum_x2 = sum($entity_historical.bucket_count_sq)
     $active_samples = count($entity_historical.window_start)
 }
 
-// Stage 3: Current window cloud/email alert activity per user
-stage current_activity {
-    (
-      metadata.log_type = "WIZ_IO"
-      or metadata.log_type = "FIREEYE_ETP"
-      or metadata.log_type = "FIREEYE_EMPS"
-      or metadata.product_name = "Trellix XDR"
-    )
-    principal.user.userid = $entity
-    $entity != ""
-
-  match:
-    $entity by 1d
-
-  outcome:
-    $current_count = count(metadata.id)
-    $current_rules = count_distinct(security_result.rule_name)
-    $sample_products = array_distinct(metadata.product_name)
-}
-
-// Root Stage: Two-Part Hurdle Evaluation
+// Root Stage: Two-Part Hurdle Evaluation (Dormant Awakening Gate + LOO Positive Intensity Z)
+$entity = $entity_historical.entity
 $entity = $entity_stats.entity
-$entity = $current_activity.entity
-$window_start = $current_activity.window_start
+$window_start = $entity_historical.window_start
 
 match:
   $entity, $window_start by 1d
 
 outcome:
-  // 6 Core Evidence Pillars
-  $observation_count = max($current_activity.current_count)
+  $observation_count = max($entity_historical.bucket_count)
   $baseline_active_samples = max($entity_stats.active_samples)
-  $baseline_mean = max($entity_stats.hist_mean)
-  $baseline_dispersion = max($entity_stats.hist_stddev)
   $fleet_prevalence = 0 - 1
-  $distinct_binaries = max($current_activity.current_rules)
-  $sample_commands = array_distinct($current_activity.sample_products)
+  $distinct_binaries = max($entity_historical.distinct_rules)
+  $sample_commands = array_distinct($entity_historical.sample_products)
 
-  // 1. Part 1: Discrete Bernoulli Hurdle (dormant awakening: <= 2 active days)
-  $is_dormant = if($baseline_active_samples <= 2, 1.0, 0.0)
-  $dormant_score = $observation_count * 1.5
+  // Leave-One-Out Continuous Intensity Standardization (Positive-Rectified)
+  $raw_n_prior = $baseline_active_samples - 1
+  $n_prior = if($raw_n_prior > 1, $raw_n_prior, 1)
+  $raw_loo_sum = max($entity_stats.sum_x) - $observation_count
+  $loo_sum = if($raw_loo_sum > 0, $raw_loo_sum, 0)
+  $baseline_mean = 1.0 * $loo_sum / $n_prior
+  $raw_loo_var = ((max($entity_stats.sum_x2) - (1.0 * $observation_count * $observation_count)) / $n_prior) - ($baseline_mean * $baseline_mean)
+  $floor_var = if($baseline_mean > 1.0, $baseline_mean, 1.0)
+  $safe_var = if($raw_loo_var > $floor_var, $raw_loo_var, $floor_var)
+  $baseline_dispersion = math.sqrt($safe_var)
+  $raw_intensity_z = ($observation_count - $baseline_mean) / $baseline_dispersion
+  $intensity_z = if($raw_intensity_z > 0.0, $raw_intensity_z, 0.0)
 
-  // 2. Part 2: Continuous Intensity Conditioned on Crossing Hurdle
-  $diff = $observation_count - $baseline_mean
-  $safe_stddev = if($baseline_dispersion > 0, $baseline_dispersion, 1.0)
-  $intensity_z = $diff / $safe_stddev
-
-  // 3. Composite Hurdle Threat Score (Option 1 Piecewise Unification)
-  $hurdle_threat_score = if($is_dormant > 0, $dormant_score, $intensity_z)
-  $unified_threat_score = $hurdle_threat_score
+  // Dormant Awakening Branch (Gated by >= 10 daily alerts when active_samples <= 3)
+  $dormant_raw = 3.0 * (1.0 * $observation_count / 10.0)
+  $dormant_score = if($observation_count >= 10, $dormant_raw, 0.0)
+  $hurdle_threat_score = if($baseline_active_samples <= 3, $dormant_score, $intensity_z)
 
 condition:
-  $observation_count >= 3
-  and $unified_threat_score >= 3.0
+  $observation_count >= 5
+  and $hurdle_threat_score >= 3.0
 
 order:
-  $unified_threat_score desc
+  $hurdle_threat_score desc
 ```
 
-#### Query 4B: 3-Stage Dual-Sector Auth Failures + Auth Successes Fusion (`secops-risk-metrics-multistage`)
-Correlates cloud and email security alerts with downstream identity compromise by fusing 30-day baselines for failed logins (`metrics.auth_attempts_fail`) and successful logins (`metrics.auth_attempts_success`) per user (`target.user.userid`, $D^2 = Z_{\text{fail}}^2 + Z_{\text{success}}^2 \ge 12.25$). This surfaces brute-force/credential-stuffing waves that culminate in a successful account takeover after a Trellix ETP/EX phishing delivery or Wiz cloud credential exposure.
+#### Query 4B: 3-Stage Dual-Sector Auth Failures + Outbound Workspace Emails Fusion (`secops-risk-metrics-multistage`)
+Correlates cloud and email vendor alerts with post-phishing account takeover and internal lateral phishing by fusing two orthogonal 30-day user behavioral baselines on a shared user-union spine (`$entity = strings.coalesce(target.user.userid, principal.user.userid)`): failed logins (`metrics.auth_attempts_fail`) and outbound Google Workspace emails (`metrics.workspace_emails_sent_total`), each gated at $\ge 7$ active baseline days with continuous Poisson count floor $\sqrt{\max(\mu, 1)}$ and upper-tail rectification ($D^2 = Z_a^2 + Z_b^2 \ge 12.25$).
 
 ```yara
 // ============================================================================
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
-// Goal: Detect post-phishing and cloud-credential compromise account takeover by fusing 30-day authentication failure and authentication success anomalies per user.
-// Statistical Model: 3-Stage Dual-Sector Threat Fusion (metrics.auth_attempts_fail + metrics.auth_attempts_success, D^2 >= 12.25)
-// ARCHITECTURE: 3-STAGE DUAL-SECTOR THREAT FUSION (GENERIC: ANY TWO ENTITY-KEYED METRICS)
+// Goal: Detect post-phishing account takeover and lateral email propagation by fusing 30-day authentication failure surges with 30-day outbound Google Workspace email volume anomalies per user.
+// Statistical Model: Dual-Sector Threat Fusion (metrics.auth_attempts_fail + metrics.workspace_emails_sent_total, D^2 >= 12.25)
+// ARCHITECTURE: DUAL-SECTOR THREAT FUSION (SINGLE-STAGE UNION SPINE ACROSS ORTHOGONAL AUTH + WORKSPACE SECTORS)
 // Skill: secops-risk-metrics-multistage
-// ADVISORY: Two metrics of the same auth family (auth_attempts_fail + auth_attempts_success) are paired to capture brute-force/stuffing followed by successful login takeover.
+// Mode A Execution Window: Last complete UTC day [D T00:00:00Z, D+1 T00:00:00Z); 30d baseline [D-30, D).
 // ============================================================================
 
-// --- STAGE 1: Sector A — Authentication Failures (UDM Source 1 of 2) ---
-stage sector_a {
-    metadata.event_type = "USER_LOGIN"
-    not security_result.action = "ALLOW"
-    target.user.userid = $entity
+// --- STAGE 1: Single-Stage User Union Across Auth Failures & Outbound Gmail (UDM Source 1 of 2) ---
+stage sector_union {
+    ((metadata.event_type = "USER_LOGIN" and not security_result.action = "ALLOW" and target.user.userid != "") or (re.regex(metadata.product_name, `(?i)^gmail$`) and network.sent_bytes > 0 and principal.user.userid != ""))
+    $entity = strings.coalesce(target.user.userid, principal.user.userid)
     $entity != ""
+    // Optional watchlist Data Table filter (uncomment after creating %vendor_alert_watchlist):
+    // $entity in %vendor_alert_watchlist.userid
 
   match:
     $entity by 1d
 
   outcome:
-    $a_obs = count(metadata.id)
+    $a_obs = sum(if(metadata.event_type = "USER_LOGIN" and not security_result.action = "ALLOW" and target.user.userid = $entity, 1, 0))
     $a_avg = max(metrics.auth_attempts_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         target.user.userid: target.user.userid
@@ -798,60 +856,72 @@ stage sector_a {
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
         target.user.userid: target.user.userid
     ))
-    $z_a_raw = ($a_obs - $a_avg) / if($a_std > 0, $a_std, 1.0)
-    $z_a = if($z_a_raw > 0, $z_a_raw, 0.0)
+
+    $b_obs = sum(if(re.regex(metadata.product_name, `(?i)^gmail$`) and network.sent_bytes > 0 and principal.user.userid = $entity, 1, 0))
+    $b_avg = max(metrics.workspace_emails_sent_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid
+    ))
+    $b_std = max(metrics.workspace_emails_sent_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid
+    ))
+    $b_days = max(metrics.workspace_emails_sent_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid
+    ))
 }
 
-// --- STAGE 2: Sector B — Authentication Successes (UDM Source 2 of 2) ---
-stage sector_b {
-    metadata.event_type = "USER_LOGIN"
-    security_result.action = "ALLOW"
-    target.user.userid = $entity
-    $entity != ""
+// --- STAGE 2: Continuous Count Floors, Upper-Tail Rectification & 7-Day Maturity Gate ---
+stage sector_scored {
+    $entity = $sector_union.entity
+    $ws = $sector_union.window_start
 
   match:
-    $entity by 1d
+    $entity, $ws by 1d
 
   outcome:
-    $b_obs = count(metadata.id)
-    $b_avg = max(metrics.auth_attempts_success(
-        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        target.user.userid: target.user.userid
-    ))
-    $b_std = max(metrics.auth_attempts_success(
-        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        target.user.userid: target.user.userid
-    ))
-    $b_days = max(metrics.auth_attempts_success(
-        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
-        target.user.userid: target.user.userid
-    ))
-    $z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)
-    $z_b = if($z_b_raw > 0, $z_b_raw, 0.0)
+    $a_obs = max($sector_union.a_obs)
+    $a_avg = max($sector_union.a_avg)
+    $a_std = max($sector_union.a_std)
+    $a_days = max($sector_union.a_days)
+    $safe_a_avg = if($a_avg > 1.0, $a_avg, 1.0)
+    $a_floor = math.sqrt($safe_a_avg)
+    $safe_a_std = if($a_std > $a_floor, $a_std, $a_floor)
+    $z_a_raw = ($a_obs - $a_avg) / $safe_a_std
+    $z_a_pos = if($z_a_raw > 0.0, $z_a_raw, 0.0)
+    $z_a = if($a_obs > 0 and $a_days >= 7, $z_a_pos, 0.0)
+
+    $b_obs = max($sector_union.b_obs)
+    $b_avg = max($sector_union.b_avg)
+    $b_std = max($sector_union.b_std)
+    $b_days = max($sector_union.b_days)
+    $safe_b_avg = if($b_avg > 1.0, $b_avg, 1.0)
+    $b_floor = math.sqrt($safe_b_avg)
+    $safe_b_std = if($b_std > $b_floor, $b_std, $b_floor)
+    $z_b_raw = ($b_obs - $b_avg) / $safe_b_std
+    $z_b_pos = if($z_b_raw > 0.0, $z_b_raw, 0.0)
+    $z_b = if($b_obs > 0 and $b_days >= 7, $z_b_pos, 0.0)
 }
 
-// --- ROOT STAGE: Dual-Sector Threat Fusion & Distance Scoring ---
-$entity = $sector_a.entity
-$entity = $sector_b.entity
+// --- ROOT STAGE: Dual-Sector Threat Fusion & Squared Euclidean Distance ---
+$entity = $sector_scored.entity
+$ws = $sector_scored.ws
 
 match:
-  $entity by 1d
+  $entity, $ws by 1d
 
 outcome:
-  $a_observed = max($sector_a.a_obs)
-  $b_observed = max($sector_b.b_obs)
-  $a_active_days = max($sector_a.a_days)
-  $b_active_days = max($sector_b.b_days)
-  $z_a = max($sector_a.z_a)
-  $z_b = max($sector_b.z_b)
-
-  // Sparse-baseline gate: a sector with fewer active baseline days contributes 0
-  $z_a_gated = if($a_active_days >= 5, $z_a, 0.0)
-  $z_b_gated = if($b_active_days >= 5, $z_b, 0.0)
+  $a_observed = max($sector_scored.a_obs)
+  $b_observed = max($sector_scored.b_obs)
+  $a_active_days = max($sector_scored.a_days)
+  $b_active_days = max($sector_scored.b_days)
+  $z_a = max($sector_scored.z_a)
+  $z_b = max($sector_scored.z_b)
 
   // Euclidean Vector Threat Norm D^2 = Z_a^2 + Z_b^2
-  $z_a_sq = $z_a_gated * $z_a_gated
-  $z_b_sq = $z_b_gated * $z_b_gated
+  $z_a_sq = $z_a * $z_a
+  $z_b_sq = $z_b * $z_b
   $composite_threat_norm_sq = $z_a_sq + $z_b_sq
 
 condition:
@@ -863,21 +933,19 @@ order:
 
 ---
 
----
-
 ### Scenario 5: Capstone Multi-Scenario Vendor Alert Entity Convergence via UDM Loopback
 
 * **Curated Detection Operational Focus**: Single-vendor alerts evaluated within their respective appliance silos.
-* **How Multi-Stage UEBA Extends Coverage**: Correlates hosts and users matching $\ge 2$ distinct vendor-alert behavioral scenarios in the current run (`Option 3` UDM Loopback `PLAYBOOK_BEHAVIORAL_HUNT_MATCH`) via an $L_2$ Euclidean risk norm ($\sum Z_i^2 \ge 25.0$).
+* **How Multi-Stage UEBA Extends Coverage**: Correlates hosts and users matching $\ge 2$ distinct vendor-alert behavioral queries in the current run (`Option 3` UDM Loopback `PLAYBOOK_BEHAVIORAL_HUNT_MATCH`) via a squared $L_2$ Euclidean risk norm ($\sum Z_i^2 \ge 25.0$).
 
 ### Scenario 5: Unified 3-Stage Capstone Multi-Scenario Convergence & Raw Telemetry Forensic Bridge (`Option 3` Cross-Query Connective Tissue)
 
-Individual behavioral queries in Scenarios 1–4 frequently fire inside ambiguous overlap regimes when evaluated in isolation. Furthermore, 30-day `metrics.*` stages aggregate away raw forensic artifacts such as full process paths or specific cloud/web resource names.
+Individual behavioral queries in Scenarios 1–4 can fire inside ambiguous overlap regimes when evaluated in isolation, and 30-day `metrics.*` stages aggregate away raw forensic artifacts such as full process paths or cloud resource names.
 
-**Scenario 5 (`Query 5`)** executes in **Wave 3** after all **Wave 1** (upstream `by 1d` and pre-filtered queries) and **Wave 2** (inline UDM-gated `Query XB` Stage B queries) have exported their findings into Chronicle's unified `GENERIC_EVENT` UDM stream (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`):
+**Scenario 5 (`Query 5`)** executes in **Wave 3** after all **Wave 1** and **Wave 2** queries have exported their findings into Chronicle's unified `GENERIC_EVENT` UDM stream (`metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"`):
 1. **Regex Union Token Matching Across All 4 Scenarios (`stage1_per_scenario_dedup`)**: Matches `PLAYBOOK_BEHAVIORAL_HUNT_MATCH` events for the active `$run_id` using a single hierarchical regex union (`re.regex(security_result.rule_name, `:q[0-9]+_query_[1-4]`)`) and deduplicates by `$entity, $scenario_tag`.
-2. **Multi-Scenario Euclidean L2 Rollup (`stage2_multi_scenario_rollup`)**: Aggregates across Stage 1 by `$entity`, counting distinct scenario tags (`$distinct_scenarios_matched >= 2`) and summing their squared Z-scores (`$capstone_threat_norm_sq >= 18.0`).
-3. **Raw Telemetry Forensic Pivot (`stage3_raw_forensic_pivot` & Root Join)**: Simultaneously aggregates raw telemetry (`PROCESS_LAUNCH`, `NETWORK_CONNECTION`, `RESOURCE_READ`, `USER_RESOURCE_ACCESS`, `USER_LOGIN`) by `$entity` and joins it with Stage 2 in Root to deliver both the cross-scenario Euclidean L2 convergence score and concrete raw forensic artifacts in a single query.
+2. **Multi-Scenario Euclidean L2 Rollup (`stage2_multi_scenario_rollup`)**: Aggregates across Stage 1 by `$entity`, counting distinct matched query tags (`$distinct_scenarios_matched >= 2`, `LOOPBACK_MIN_DISTINCT_HITS`) and summing their squared Z-equivalent scores (`$capstone_threat_norm_sq >= 25.0`, `LOOPBACK_COMPOSITE_SUM_Z_SQ_THRESHOLD`).
+3. **Fused Per-Sector Raw Telemetry Forensic Pivot (`stage3_raw_forensic_pivot` & Root Join)**: Separates raw endpoint (`PROCESS_LAUNCH`), network (`NETWORK_CONNECTION`), cloud (`RESOURCE_READ`, `USER_RESOURCE_ACCESS`), and login (`USER_LOGIN`) events via conditional sums per `$entity` and joins them with Stage 2 in Root, ranking strictly by `$capstone_threat_norm_sq` without raw-volume score inflation.
 
 #### Query 5: 3-Stage Unified Capstone Multi-Scenario Convergence & Raw Telemetry Forensic Bridge (`secops-statistical-hunter`)
 
@@ -886,8 +954,8 @@ Individual behavioral queries in Scenarios 1–4 frequently fire inside ambiguou
 // Copyright 2026 Google LLC. All Rights Reserved.
 // Author: Greg Kushmerek
 // ARCHITECTURE: 3-STAGE UNIFIED CAPSTONE CONVERGENCE & RAW FORENSIC BRIDGE
-// Goal: Deduplicate and roll up normalized UEBA hunt matches across all 4 Vendor Alerts scenarios (1 through 4B) via UDM Loopback regex token union while simultaneously joining raw telemetry for forensic attribution.
-// Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 18.0) + Cross-Plane Raw Telemetry Bridge
+// Goal: Deduplicate and roll up normalized UEBA hunt matches across Scenarios 1 through 4 via UDM Loopback regex token union while joining per-domain raw telemetry for forensic attribution.
+// Statistical Model: Cross-Scenario Euclidean L2 Threat Norm Convergence (distinct_scenarios_matched >= 2, capstone_threat_norm_sq >= 25.0) + Fused Raw Telemetry Bridge
 // Skill: secops-statistical-hunter
 // ============================================================================
 
@@ -902,6 +970,8 @@ stage stage1_per_scenario_dedup {
     $entity = strings.coalesce(principal.user.userid, principal.asset.hostname, principal.ip[0])
     $entity != ""
     $run_id != ""
+    // Optional watchlist Data Table filter (uncomment after creating %vendor_alert_watchlist):
+    // $entity in %vendor_alert_watchlist.entity_id
 
   match:
     $entity, $scenario_tag
@@ -932,11 +1002,11 @@ stage stage2_multi_scenario_rollup {
 
 stage stage3_raw_forensic_pivot {
     (
-        metadata.event_type = "PROCESS_LAUNCH" or
-        metadata.event_type = "NETWORK_CONNECTION" or
-        metadata.event_type = "RESOURCE_READ" or
-        metadata.event_type = "USER_RESOURCE_ACCESS" or
-        metadata.event_type = "USER_LOGIN"
+      metadata.event_type = "PROCESS_LAUNCH"
+      or metadata.event_type = "NETWORK_CONNECTION"
+      or metadata.event_type = "RESOURCE_READ"
+      or metadata.event_type = "USER_RESOURCE_ACCESS"
+      or metadata.event_type = "USER_LOGIN"
     )
     $entity = strings.coalesce(principal.user.userid, principal.asset.hostname, principal.ip[0])
     $entity != ""
@@ -946,7 +1016,10 @@ stage stage3_raw_forensic_pivot {
 
   outcome:
     $raw_event_count = count(metadata.id)
-    $distinct_event_types = count_distinct(metadata.event_type)
+    $process_events = sum(if(metadata.event_type = "PROCESS_LAUNCH", 1, 0))
+    $network_events = sum(if(metadata.event_type = "NETWORK_CONNECTION", 1, 0))
+    $cloud_events = sum(if(metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS", 1, 0))
+    $login_events = sum(if(metadata.event_type = "USER_LOGIN", 1, 0))
     $sample_processes = array_distinct(target.process.file.full_path)
     $sample_resources = array_distinct(target.resource.name)
     $total_sent_bytes = sum(network.sent_bytes)
@@ -969,45 +1042,57 @@ outcome:
   $capstone_threat_score = math.sqrt($capstone_threat_norm_sq)
 
   $raw_event_count = max($stage3_raw_forensic_pivot.raw_event_count)
-  $distinct_event_types = max($stage3_raw_forensic_pivot.distinct_event_types)
+  $process_events = max($stage3_raw_forensic_pivot.process_events)
+  $network_events = max($stage3_raw_forensic_pivot.network_events)
+  $cloud_events = max($stage3_raw_forensic_pivot.cloud_events)
+  $login_events = max($stage3_raw_forensic_pivot.login_events)
   $sample_processes = array_distinct($stage3_raw_forensic_pivot.sample_processes)
   $sample_resources = array_distinct($stage3_raw_forensic_pivot.sample_resources)
   $total_sent_bytes = max($stage3_raw_forensic_pivot.total_sent_bytes)
 
-  $unified_threat_score = $capstone_threat_score + math.log($raw_event_count + 1)
-
 condition:
   $distinct_scenarios_matched >= 2
-  and $capstone_threat_norm_sq >= 18.0
+  and $capstone_threat_norm_sq >= 25.0
   and $raw_event_count >= 1
 
 order:
-  $unified_threat_score desc
+  $capstone_threat_norm_sq desc
 ```
----
 
 ---
 
-## 4. 4-Stage Raw Non-Parametric Quantiles, Bowley Skewness, Hubert–Vandervieren Fence & Fleet Prevalence (`v2.9.0`)
+## 4. 4-Stage Raw Non-Parametric Quantiles, Bowley Skewness, Tukey Fence Excess Z & Fleet Prevalence (`secops-statistical-hunter`)
 
-When hunting heavy-tailed network or vendor alert surges without pre-computed `metrics.*` tables (`secops-statistical-hunter`), `iqr_tukey_skew_fences_3stage.yl2` computes `$p10, $q25, $q50, $q75, $p90` in a single `quantile_fences` stage, freeing Stage 3 (`fleet_breadth`) to compute concurrent `$fleet_prevalence`:
+When hunting heavy-tailed vendor alert surges over bounded raw lookback windows without pre-computed `metrics.*` tables (`secops-statistical-hunter`), `iqr_tukey_skew_fences_3stage.yl2` (`IQR_TUKEY_SKEW_FENCES`) computes the 5-point empirical quantile envelope (`$p10, $q25, $q50, $q75, $p90`) in a single `quantile_fences` stage, applies a continuous relative IQR floor $\max(Q_3 - Q_1, \max(0.01 \cdot Q_2, 1.0))$ and recalibrated `1.35` Bowley skewness exponent (`Q3 + 1.5 * exp(1.35 * max(0, Bowley)) * SafeIQR`), ranks outliers by scale-invariant robust standard-deviation units above the upper fence (`$fence_z >= 3.5` with $\ge 7$ active days), and uses Stage 3 (`fleet_breadth`) to measure concurrent surging fleet prevalence:
 
 ```yara
-// Goal: 4-Stage Raw Non-Parametric Quantiles, Bowley Skewness, Hubert-Vandervieren Fence & Fleet Prevalence (secops-statistical-hunter)
+// ============================================================================
+// Copyright 2026 Google LLC. All Rights Reserved.
+// Author: Greg Kushmerek
+// Goal: Non-Parametric Quantiles, Bowley Skewness, Tail-Heaviness & Scale-Invariant Tukey Fence Excess Z outlier hunt over raw vendor alert telemetry.
+// Target Telemetry: UDM_EVENTS (Third-Party Vendor Alerts with security_result.rule_name != "")
+// Statistical Model: Recalibrated Bowley Skewness-Adjusted Tukey Fence Excess Z (IQR_TUKEY_SKEW_FENCES, fence_z >= 3.5, baseline_active_samples >= 7)
+// ============================================================================
+
+// Stage 1: Per-day vendor alert count and distinct rule signatures per host
 stage daily_stats {
-    metadata.event_type = "NETWORK_CONNECTION"
-    network.sent_bytes > 0
+    security_result.rule_name != ""
+    metadata.product_name != "SecOps Risk Metrics Hunter"
     principal.asset.hostname = $entity
     $entity != ""
+    // Optional watchlist Data Table filter (uncomment after creating %vendor_alert_watchlist):
+    // $entity in %vendor_alert_watchlist.hostname
 
   match:
     $entity by 1d
 
   outcome:
-    $daily_val = sum(network.sent_bytes)
-    $event_count = count(metadata.id)
+    $daily_value = count(metadata.id)
+    $distinct_sample_values = count_distinct(security_result.rule_name)
+    $sample_data = array_distinct(security_result.rule_name)
 }
 
+// Stage 2: 5-point empirical quantile envelope (P10, Q1, Q2, Q3, P90) in a single stage
 stage quantile_fences {
     $entity = $daily_stats.entity
 
@@ -1015,60 +1100,66 @@ stage quantile_fences {
     $entity
 
   outcome:
-    $p10 = window.percentile($daily_stats.daily_val, 10)
-    $q25 = window.percentile($daily_stats.daily_val, 25)
-    $q50 = window.percentile($daily_stats.daily_val, 50)
-    $q75 = window.percentile($daily_stats.daily_val, 75)
-    $p90 = window.percentile($daily_stats.daily_val, 90)
-    $active_days = count($daily_stats.daily_val)
+    $active_days = count_distinct($daily_stats.window_start)
+    $p10 = window.percentile($daily_stats.daily_value, 10)
+    $q25 = window.percentile($daily_stats.daily_value, 25)
+    $q50 = window.percentile($daily_stats.daily_value, 50)
+    $q75 = window.percentile($daily_stats.daily_value, 75)
+    $p90 = window.percentile($daily_stats.daily_value, 90)
 }
 
+// Stage 3: Enterprise-wide fleet prevalence of surging hosts per day
 stage fleet_breadth {
-    $day_bucket = $daily_stats.window_start
+    $ws = $daily_stats.window_start
 
   match:
-    $day_bucket by 1d
+    $ws by 1d
 
   outcome:
-    $fleet_active_entities = count_distinct($daily_stats.entity)
+    $fleet_hosts = sum(if($daily_stats.daily_value >= 10, 1, 0))
 }
 
+// Root Stage: Bowley Skewness, Skewness-Adjusted Tukey Fence Excess Z & 6 Evidence Pillars
 $entity = $daily_stats.entity
 $entity = $quantile_fences.entity
-$day_bucket = $daily_stats.window_start
-$day_bucket = $fleet_breadth.day_bucket
+$window_start = $daily_stats.window_start
+$window_start = $fleet_breadth.ws
 
 match:
-  $entity, $day_bucket by 1d
+  $entity, $window_start by 1d
 
 outcome:
-  $observed_val = max($daily_stats.daily_val)
-  $obs_events = max($daily_stats.event_count)
+  // 6 Core Evidence Pillars
+  $observation_count = max($daily_stats.daily_value)
+  $baseline_active_samples = max($quantile_fences.active_days)
+  $baseline_mean = max($quantile_fences.q50)
   $q25_val = max($quantile_fences.q25)
-  $q50_val = max($quantile_fences.q50)
   $q75_val = max($quantile_fences.q75)
-  $days_active = max($quantile_fences.active_days)
-  $fleet_prevalence = max($fleet_breadth.fleet_active_entities)
+  $baseline_dispersion = $q75_val - $q25_val
+  $fleet_prevalence = max($fleet_breadth.fleet_hosts)
+  $distinct_binaries = max($daily_stats.distinct_sample_values)
+  $sample_commands = array_distinct($daily_stats.sample_data)
 
-  $iqr = $q75_val - $q25_val
-  $safe_iqr = if($iqr > 0, $iqr, 1.0)
-  $idr = max($quantile_fences.p90) - max($quantile_fences.p10)
-
-  $bowley_num = $q75_val + $q25_val - (2.0 * $q50_val)
-  $bowley_skew = $bowley_num / $safe_iqr
-  $tail_heaviness = $idr / $safe_iqr
-
-  $pos_skew = if($bowley_skew > 0, $bowley_skew, 0.0)
-  $skew_mult = math.pow(2.718281828, 3.0 * $pos_skew)
-  $adj_upper_fence = $q75_val + (1.5 * $skew_mult * $safe_iqr)
-  $safe_fence = if($adj_upper_fence > 0, $adj_upper_fence, 1.0)
-  $surge_ratio = $observed_val / $safe_fence
+  // Continuous IQR Floor, Recalibrated Bowley Skewness (1.35) & Scale-Invariant Fence Z
+  $rel_floor = 0.01 * $baseline_mean
+  $iqr_floor = if($rel_floor > 1.0, $rel_floor, 1.0)
+  $safe_iqr = if($baseline_dispersion > $iqr_floor, $baseline_dispersion, $iqr_floor)
+  $bowley_skew = ($q75_val + $q25_val - (2.0 * $baseline_mean)) / $safe_iqr
+  $tail_heaviness = (max($quantile_fences.p90) - max($quantile_fences.p10)) / $safe_iqr
+  $pos_skew = if($bowley_skew > 0.0, $bowley_skew, 0.0)
+  $skew_exp = math.pow(2.718281828, 1.35 * $pos_skew)
+  $adj_upper_fence = $q75_val + (1.5 * $skew_exp * $safe_iqr)
+  $safe_fence = if($adj_upper_fence > 1.0, $adj_upper_fence, 1.0)
+  $surge_ratio = $observation_count / $safe_fence
+  $fence_z = ($observation_count - $adj_upper_fence) / ($safe_iqr / 1.349)
 
 condition:
-  $days_active >= 5 and $observed_val > $adj_upper_fence and $surge_ratio >= 2.0
+  $baseline_active_samples >= 7
+  and $observation_count >= 10
+  and $fence_z >= 3.5
 
 order:
-  $surge_ratio desc
+  $fence_z desc
 ```
 
 ---
